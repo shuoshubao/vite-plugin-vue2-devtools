@@ -1,0 +1,10 @@
+{
+  "name": "vue2-devtools-mono",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "plugin",
+    "demo"
+  ]
+}
