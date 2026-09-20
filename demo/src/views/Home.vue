@@ -8,8 +8,13 @@
 <template>
   <div class="home">
     <h1>{{ title }}</h1>
-    <el-button type="primary" @click="count++">Clicked {{ count }} times</el-button>
-    <p>Double count (computed): {{ doubleCount }}</p>
+    <el-button type="primary" @click="$store.commit('increment')">
+      count = {{ $store.state.count }}
+    </el-button>
+    <el-button @click="$store.commit('increment', 5)">+5</el-button>
+    <el-button @click="$store.commit('addTag', 'tag-' + Date.now())">add tag</el-button>
+    <el-button @click="$store.dispatch('incrementAsync', 2)">async +2</el-button>
+    <p>doubleCount (vuex getter): {{ $store.getters.doubleCount }}</p>
 
     <div class="cards">
       <user-card

@@ -358,30 +358,33 @@ export class Vue2DevtoolsPanel extends LitElement {
         Vue2
       </div>`
     }
-    const filter = this._computeFilter()
-    const noMatch = filter && filter.roots.length === 0
     return html`
       <div class="panel">
         <div class="header">
-          <span class="title">Vue 2 Devtools</span>
+          <button
+            class="tab ${this.tab === 'components' ? 'active' : ''}"
+            @click=${() => (this.tab = 'components')}
+          >
+            Components
+          </button>
+          <button
+            class="tab ${this.tab === 'vuex' ? 'active' : ''}"
+            @click=${() => (this.tab = 'vuex')}
+          >
+            Vuex
+          </button>
           <span class="spacer"></span>
-          <button
-            class="btn ${this.picking ? 'on' : ''}"
-            title="Pick element on page (Esc to cancel)"
-            @click=${() => this._togglePick()}
-          >
-            ⌖
-          </button>
-          <button
-            class="btn ${this.highlightOn ? 'on' : ''}"
-            title="Toggle highlight"
-            @click=${() => this._toggleHighlight()}
-          >
-            ◈
-          </button>
-          <button class="btn" title="Refresh" @click=${() => this.refresh()}>
-            ⟳
-          </button>
+          ${this.tab === 'components'
+            ? html`
+                <button
+                  class="btn ${this.picking ? 'on' : ''}"
+                  title="Pick element on page (Esc to cancel)"
+                  @click=${() => this._togglePick()}
+                >
+                  ⌖
+                </button>
+              `
+            : null}
           <button
             class="btn"
             title="Minimize"
@@ -390,34 +393,112 @@ export class Vue2DevtoolsPanel extends LitElement {
             ─
           </button>
         </div>
-        <div class="search">
-          <input
-            class="search-input"
-            type="search"
-            placeholder="Search components…"
-            .value=${this.query}
-            @input=${(e) => (this.query = e.target.value)}
-            @keydown=${(e) => {
-              if (e.key === 'Escape') {
-                this.query = ''
-                e.stopPropagation()
-              }
-            }}
-          />
-        </div>
-        <div class="body">
-          <div class="tree">
-            ${!this.tree.length
-              ? html`<div class="empty">No Vue app detected</div>`
-              : noMatch
-                ? html`<div class="empty">No component matches</div>`
-                : filter
-                  ? filter.roots.map((n) => this._renderSearchNode(n, 0, filter.show))
-                  : this.tree.map((n) => this._renderNode(n, 0))}
-          </div>
-          <div class="detail">${this._renderDetail()}</div>
-        </div>
+        ${this.tab === 'components' ? this._renderComponents() : this._renderVuex()}
       </div>
+    `
+  }
+
+  _renderComponents() {
+    const filter = this._computeFilter()
+    const noMatch = filter && filter.roots.length === 0
+    return html`
+      <div class="search">
+        <input
+          class="search-input"
+          type="search"
+          placeholder="Search components…"
+          .value=${this.query}
+          @input=${(e) => (this.query = e.target.value)}
+          @keydown=${(e) => {
+            if (e.key === 'Escape') {
+              this.query = ''
+              e.stopPropagation()
+            }
+          }}
+        />
+      </div>
+      <div class="body">
+        <div class="tree">
+          ${!this.tree.length
+            ? html`<div class="empty">No Vue app detected</div>`
+            : noMatch
+              ? html`<div class="empty">No component matches</div>`
+              : filter
+                ? filter.roots.map((n) => this._renderSearchNode(n, 0, filter.show))
+                : this.tree.map((n) => this._renderNode(n, 0))}
+        </div>
+        <div class="detail">${this._renderDetail()}</div>
+      </div>
+    `
+  }
+
+  _renderVuex() {
+    if (!hasStore()) {
+      return html`<div class="body">
+        <div class="empty">No Vuex store detected</div>
+      </div>`
+    }
+    const snaps = getSnapshots()
+    const sel = Math.min(this.vuexSelected, snaps.length - 1)
+    const snap = snaps[sel]
+    return html`
+      <div class="body">
+        <div class="tree">
+          <div class="vuex-bar">
+            <button
+              class="btn"
+              title="Commit all — clear history, keep current state"
+              @click=${() => {
+                commitAll()
+                this.vuexSelected = 0
+              }}
+            >
+              ✓ Commit All
+            </button>
+          </div>
+          ${snaps.map(
+            (s, i) => html`
+              <div
+                class="node ${i === sel ? 'selected' : ''}"
+                @click=${() => (this.vuexSelected = i)}
+              >
+                <span class="mut-index">${s.base ? '' : i}</span>
+                <span class="tag">${s.base ? 'Base State' : s.type}</span>
+              </div>
+            `
+          )}
+        </div>
+        <div class="detail">${snap ? this._renderVuexDetail(snap, sel) : null}</div>
+      </div>
+    `
+  }
+
+  _renderVuexDetail(snap, index) {
+    const stateRows = Object.keys(snap.state || {}).map((k) => ({
+      key: k,
+      value: formatValue(snap.state[k])
+    }))
+    const payloadRows =
+      snap.payload === undefined
+        ? []
+        : [{ key: 'payload', value: formatValue(snap.payload) }]
+    const store = getStore()
+    const getterRows = store
+      ? Object.keys(store.getters || {}).map((k) => ({
+          key: k,
+          value: formatValue(store.getters[k])
+        }))
+      : []
+    return html`
+      ${!snap.base
+        ? html`<button class="btn on time-travel" @click=${() => travelTo(index)}>
+            ⏱ Time Travel
+          </button>`
+        : null}
+      ${this._renderSection('mutation', [{ key: 'type', value: snap.type }])}
+      ${this._renderSection('payload', payloadRows)}
+      ${this._renderSection('state', stateRows)}
+      ${this._renderSection('getters (live)', getterRows)}
     `
   }
 
@@ -458,9 +539,22 @@ export class Vue2DevtoolsPanel extends LitElement {
       padding: 6px 8px;
       background: #35495e;
     }
-    .title {
-      color: #41b883;
+    .tab {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #b0bec5;
+      cursor: pointer;
+      font-size: 12px;
       font-weight: 600;
+      padding: 2px 4px;
+    }
+    .tab:hover {
+      color: #fff;
+    }
+    .tab.active {
+      color: #41b883;
+      border-bottom-color: #41b883;
     }
     .spacer {
       flex: 1;
@@ -573,6 +667,24 @@ export class Vue2DevtoolsPanel extends LitElement {
       color: #789;
       padding: 8px;
       font-style: italic;
+    }
+    .vuex-bar {
+      padding: 4px 6px;
+      border-bottom: 1px solid #3a3a3a;
+    }
+    .mut-index {
+      display: inline-block;
+      min-width: 16px;
+      color: #90a4ae;
+      font-size: 10px;
+      text-align: right;
+    }
+    .node.selected .mut-index {
+      color: #17222b;
+    }
+    .time-travel {
+      margin: 4px 0 8px;
+      display: inline-block;
     }
   `
 }
