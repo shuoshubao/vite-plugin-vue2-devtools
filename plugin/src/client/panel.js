@@ -5,7 +5,16 @@
 import { LitElement, css, html } from 'lit'
 import hook from './hook.js'
 import { hide, highlight } from './inspector.js'
-import { buildTree, getInstance, inspect } from './walker.js'
+import { buildTree, getInstance, inspect, formatValue } from './walker.js'
+import { isPicking, startPicking, stopPicking } from './picker.js'
+import {
+  hasStore,
+  getSnapshots,
+  getStore,
+  subscribe as vuexSubscribe,
+  travelTo,
+  commitAll
+} from './vuex.js'
 
 export class Vue2DevtoolsPanel extends LitElement {
   static properties = {
@@ -13,7 +22,11 @@ export class Vue2DevtoolsPanel extends LitElement {
     selectedId: { state: true },
     expanded: { state: true },
     highlightOn: { state: true },
-    collapsed: { state: true }
+    collapsed: { state: true },
+    picking: { state: true },
+    query: { state: true },
+    tab: { state: true },
+    vuexSelected: { state: true }
   }
 
   constructor() {
@@ -23,13 +36,21 @@ export class Vue2DevtoolsPanel extends LitElement {
     this.expanded = new Set()
     this.highlightOn = true
     this.collapsed = false
+    this.picking = false
+    this.query = ''
+    this.tab = 'components'
+    this.vuexSelected = 0
     this._flushTimer = null
+    this._scrollToSelected = false
     this._onFlush = () => this._scheduleRefresh()
+    this._onKeydown = (e) => this._handleKeydown(e)
   }
 
   connectedCallback() {
     super.connectedCallback()
     hook.on('flush', this._onFlush)
+    window.addEventListener('keydown', this._onKeydown, true)
+    this._vuexUnsub = vuexSubscribe(() => this.requestUpdate())
     // First paint may happen before the app has mounted; retry shortly.
     this.refresh()
     setTimeout(() => this.refresh(), 300)
@@ -38,6 +59,9 @@ export class Vue2DevtoolsPanel extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback()
     hook.off('flush', this._onFlush)
+    window.removeEventListener('keydown', this._onKeydown, true)
+    if (this._vuexUnsub) this._vuexUnsub()
+    stopPicking()
   }
 
   _scheduleRefresh() {
@@ -81,6 +105,173 @@ export class Vue2DevtoolsPanel extends LitElement {
     }
   }
 
+  _togglePick() {
+    if (isPicking()) {
+      stopPicking()
+      this.picking = false
+      return
+    }
+    this.picking = true
+    startPicking((vm) => {
+      this.picking = false
+      this._selectVm(vm)
+    })
+  }
+
+  // Select by live instance (used by the element picker): rebuild the tree,
+  // expand the ancestor chain so the node is visible, then select + scroll.
+  _selectVm(vm) {
+    this.refresh()
+    const path = this._pathToVm(vm)
+    if (!path.length) return
+    for (let i = 0; i < path.length - 1; i++) this.expanded.add(path[i])
+    this._select(path[path.length - 1])
+    this._scrollToSelected = true
+    this.requestUpdate()
+  }
+
+  _pathToVm(vm) {
+    let found = null
+    const dfs = (node, trail) => {
+      const next = [...trail, node.id]
+      if (getInstance(node.id) === vm) {
+        found = next
+        return true
+      }
+      for (const c of node.children || []) if (dfs(c, next)) return true
+      return false
+    }
+    for (const r of this.tree) if (dfs(r, [])) break
+    return found || []
+  }
+
+  // Compute name-search filter. Returns null when no query is active.
+  // Like vue-devtools: a matched component becomes a top-level entry with its
+  // full descendant subtree shown; parent/ancestor components are hidden. A
+  // match nested inside another match is not promoted (it shows in the subtree).
+  _computeFilter() {
+    const q = this.query.trim().toLowerCase()
+    if (!q) return null
+    const matched = new Set()
+    const mark = (node) => {
+      if (node.name.toLowerCase().includes(q)) matched.add(node.id)
+      for (const c of node.children || []) mark(c)
+    }
+    for (const r of this.tree) mark(r)
+
+    const roots = []
+    const show = new Set()
+    const collect = (node) => {
+      show.add(node.id)
+      for (const c of node.children || []) collect(c)
+    }
+    const walk = (node, hasMatchedAncestor) => {
+      const isMatch = matched.has(node.id)
+      if (isMatch && !hasMatchedAncestor) {
+        roots.push(node)
+        collect(node)
+      }
+      for (const c of node.children || []) walk(c, hasMatchedAncestor || isMatch)
+    }
+    for (const r of this.tree) walk(r, false)
+    return { roots, show, q }
+  }
+
+  // Flatten the visible rows + parent links for keyboard navigation. During a
+  // search the visible rows are the matched subtrees (all descendants shown).
+  _index(filter) {
+    const order = []
+    const parent = new Map()
+    const node = new Map()
+    if (filter) {
+      const walk = (n, p) => {
+        node.set(n.id, n)
+        parent.set(n.id, p)
+        order.push(n.id)
+        for (const c of n.children || []) {
+          if (filter.show.has(c.id)) walk(c, n.id)
+        }
+      }
+      for (const r of filter.roots) walk(r, null)
+      return { order, parent, node }
+    }
+    const walk = (n, p) => {
+      node.set(n.id, n)
+      parent.set(n.id, p)
+      order.push(n.id)
+      if (n.children && n.children.length && this.expanded.has(n.id)) {
+        for (const c of n.children) walk(c, n.id)
+      }
+    }
+    for (const r of this.tree) walk(r, null)
+    return { order, parent, node }
+  }
+
+  // Arrow-key navigation once a component is selected (VS Code / devtools style):
+  // ↑/↓ move through visible rows, → step into / expand, ← step out / collapse.
+  // During search the subtree is always shown, so →/← just navigate in/out.
+  _handleKeydown(e) {
+    if (this.collapsed || this.selectedId == null) return
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return
+    // Don't hijack arrow keys while typing in a field. composedPath sees into
+    // our shadow root (the search box) as well as the app's own inputs.
+    const path = e.composedPath ? e.composedPath() : []
+    const inEditable = path.some(
+      (el) =>
+        el &&
+        el.tagName &&
+        (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
+    )
+    if (inEditable) return
+
+    const filter = this._computeFilter()
+    const searching = !!filter
+    const { order, parent, node } = this._index(filter)
+    const id = this.selectedId
+    const cur = node.get(id)
+    if (!cur) return
+    const i = order.indexOf(id)
+    if (i < 0) return
+    const shownChildren = (cur.children || []).filter(
+      (c) => !filter || filter.show.has(c.id)
+    )
+    const hasChildren = shownChildren.length > 0
+    const isOpen = searching ? true : this.expanded.has(id)
+    let next = null
+
+    if (e.key === 'ArrowDown') {
+      next = order[Math.min(order.length - 1, i + 1)]
+    } else if (e.key === 'ArrowUp') {
+      next = order[Math.max(0, i - 1)]
+    } else if (e.key === 'ArrowRight') {
+      if (hasChildren && !isOpen) this.expanded.add(id)
+      else if (hasChildren && isOpen) next = shownChildren[0].id
+    } else if (e.key === 'ArrowLeft') {
+      if (hasChildren && isOpen && !searching) this.expanded.delete(id)
+      else next = parent.get(id)
+    }
+
+    e.preventDefault()
+    if (next != null) this._select(next)
+    this._scrollToSelected = true
+    this.requestUpdate()
+  }
+
+  updated(changed) {
+    // When the query changes, auto-select the first match (like vue-devtools).
+    if (changed && changed.has('query') && this.query.trim()) {
+      const f = this._computeFilter()
+      if (f && f.roots.length && !f.show.has(this.selectedId)) {
+        this._select(f.roots[0].id)
+        this._scrollToSelected = true
+      }
+    }
+    if (!this._scrollToSelected) return
+    this._scrollToSelected = false
+    const el = this.renderRoot.querySelector('.node.selected')
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  }
+
   _renderNode(node, depth) {
     const hasChildren = node.children && node.children.length > 0
     const isOpen = this.expanded.has(node.id)
@@ -105,6 +296,26 @@ export class Vue2DevtoolsPanel extends LitElement {
         ${hasChildren && isOpen
           ? node.children.map((c) => this._renderNode(c, depth + 1))
           : null}
+      </div>
+    `
+  }
+
+  // Search result row: matched node as a subtree root, with all descendants
+  // shown (always open). Ancestors are omitted. Arrow is non-interactive here.
+  _renderSearchNode(node, depth, show) {
+    const kids = (node.children || []).filter((c) => show.has(c.id))
+    const isSelected = node.id === this.selectedId
+    return html`
+      <div>
+        <div
+          class="node ${isSelected ? 'selected' : ''}"
+          style="padding-left:${depth * 12 + 4}px"
+          @click=${() => this._select(node.id)}
+        >
+          <span class="arrow ${kids.length ? 'open' : 'hidden'}">▶</span>
+          <span class="tag">&lt;${node.name}&gt;</span>
+        </div>
+        ${kids.map((c) => this._renderSearchNode(c, depth + 1, show))}
       </div>
     `
   }
@@ -147,11 +358,20 @@ export class Vue2DevtoolsPanel extends LitElement {
         Vue2
       </div>`
     }
+    const filter = this._computeFilter()
+    const noMatch = filter && filter.roots.length === 0
     return html`
       <div class="panel">
         <div class="header">
           <span class="title">Vue 2 Devtools</span>
           <span class="spacer"></span>
+          <button
+            class="btn ${this.picking ? 'on' : ''}"
+            title="Pick element on page (Esc to cancel)"
+            @click=${() => this._togglePick()}
+          >
+            ⌖
+          </button>
           <button
             class="btn ${this.highlightOn ? 'on' : ''}"
             title="Toggle highlight"
@@ -170,11 +390,30 @@ export class Vue2DevtoolsPanel extends LitElement {
             ─
           </button>
         </div>
+        <div class="search">
+          <input
+            class="search-input"
+            type="search"
+            placeholder="Search components…"
+            .value=${this.query}
+            @input=${(e) => (this.query = e.target.value)}
+            @keydown=${(e) => {
+              if (e.key === 'Escape') {
+                this.query = ''
+                e.stopPropagation()
+              }
+            }}
+          />
+        </div>
         <div class="body">
           <div class="tree">
-            ${this.tree.length
-              ? this.tree.map((n) => this._renderNode(n, 0))
-              : html`<div class="empty">No Vue app detected</div>`}
+            ${!this.tree.length
+              ? html`<div class="empty">No Vue app detected</div>`
+              : noMatch
+                ? html`<div class="empty">No component matches</div>`
+                : filter
+                  ? filter.roots.map((n) => this._renderSearchNode(n, 0, filter.show))
+                  : this.tree.map((n) => this._renderNode(n, 0))}
           </div>
           <div class="detail">${this._renderDetail()}</div>
         </div>
@@ -246,6 +485,25 @@ export class Vue2DevtoolsPanel extends LitElement {
       flex: 1;
       display: flex;
       min-height: 0;
+    }
+    .search {
+      padding: 5px 8px;
+      background: #2b2b2b;
+      border-bottom: 1px solid #3a3a3a;
+    }
+    .search-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #1c1c1c;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-size: 12px;
+      padding: 4px 8px;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: #41b883;
     }
     .tree {
       width: 45%;

@@ -3,6 +3,7 @@
 // panel once the document is ready.
 
 import './hook.js'
+import './vuex.js'
 import './panel.js'
 
 function mount() {
