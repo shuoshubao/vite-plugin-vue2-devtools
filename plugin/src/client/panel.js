@@ -13,6 +13,12 @@ import { buildTree, formatValue, getInstance } from './walker.js';
 // component tree / expanded set (ids are regenerated each load).
 const STORE_KEY = 'vue2-devtools:ui';
 
+// Panel size (keep in sync with .panel CSS) — used to keep it on-screen.
+const PANEL_W = 620;
+const PANEL_H = 420;
+const EDGE_MARGIN = 12;
+const DRAG_THRESHOLD = 4;
+
 export class Vue2DevtoolsPanel extends LitElement {
     static properties = {
         tree: { state: true },
@@ -41,6 +47,10 @@ export class Vue2DevtoolsPanel extends LitElement {
         this.renderCodeText = null;
         this.valueExpanded = new Set();
         this.sectionCollapsed = new Set();
+        // Docked position of the entry/panel. Defaults to the bottom edge near
+        // the right; { edge: 'left'|'right'|'top'|'bottom', along: number }.
+        this._pos = ui.pos || { edge: 'bottom', along: Number.POSITIVE_INFINITY };
+        this._drag = null;
         this._editingPath = null;
         this._focusEdit = false;
         this._flushTimer = null;
@@ -59,10 +69,85 @@ export class Vue2DevtoolsPanel extends LitElement {
 
     _persistUiState() {
         try {
-            localStorage.setItem(STORE_KEY, JSON.stringify({ collapsed: this.collapsed, tab: this.tab }));
+            localStorage.setItem(STORE_KEY, JSON.stringify({ collapsed: this.collapsed, tab: this.tab, pos: this._pos || undefined }));
         } catch (e) {
             /* storage unavailable — ignore */
         }
+    }
+
+    // Apply the docked position to the host element. Clamps against the current
+    // rendered size so the fab (collapsed) and the panel (expanded) both stay
+    // fully on-screen.
+    _applyPos() {
+        const p = this._pos;
+        const s = this.style;
+        if (!p) {
+            // default: fall back to the CSS bottom-right anchor
+            s.insetInlineStart = s.insetBlockStart = s.insetInlineEnd = s.insetBlockEnd = '';
+            return;
+        }
+        const M = EDGE_MARGIN;
+        const rect = this.getBoundingClientRect();
+        const w = rect.width || (this.collapsed ? 40 : PANEL_W);
+        const h = rect.height || (this.collapsed ? 40 : PANEL_H);
+        const clamp = (v, max) => Math.min(Math.max(M, v), Math.max(M, max));
+        // Reset, then pin near the docked edge, free-slide along it.
+        s.insetInlineStart = s.insetBlockStart = s.insetInlineEnd = s.insetBlockEnd = 'auto';
+        if (p.edge === 'right' || p.edge === 'left') {
+            s['inset' + (p.edge === 'right' ? 'InlineEnd' : 'InlineStart')] = M + 'px';
+            s.insetBlockStart = clamp(p.along, window.innerHeight - h - M) + 'px';
+        } else {
+            s['inset' + (p.edge === 'bottom' ? 'BlockEnd' : 'BlockStart')] = M + 'px';
+            s.insetInlineStart = clamp(p.along, window.innerWidth - w - M) + 'px';
+        }
+        // Expose the docked edge so the entry can stack its icons along it
+        // (row on top/bottom, column on left/right).
+        this.setAttribute('dock', p.edge);
+    }
+
+    // Drag the entry (fab). Movement over a small threshold counts as a drag;
+    // otherwise it's a click that opens the panel. On release, snap to whichever
+    // of the four edges is nearest and stay flush against it.
+    _onFabPointerDown(e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const rect = this.getBoundingClientRect();
+        this._drag = { startX: e.clientX, startY: e.clientY, offX: e.clientX - rect.left, offY: e.clientY - rect.top, moved: false };
+        this._onDragMove = ev => this._dragMove(ev);
+        this._onDragUp = ev => this._dragUp(ev);
+        window.addEventListener('pointermove', this._onDragMove, true);
+        window.addEventListener('pointerup', this._onDragUp, true);
+    }
+
+    _dragMove(e) {
+        const d = this._drag;
+        if (!d) return;
+        if (!d.moved && Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) < DRAG_THRESHOLD) return;
+        d.moved = true;
+        // Snap to the nearest edge live during the drag (not on release), so the
+        // docked offset + orientation update in real time as the pointer moves.
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const dist = { left: e.clientX, right: vw - e.clientX, top: e.clientY, bottom: vh - e.clientY };
+        const edge = Object.keys(dist).reduce((a, b) => (dist[b] < dist[a] ? b : a));
+        const along = edge === 'left' || edge === 'right' ? e.clientY - d.offY : e.clientX - d.offX;
+        this._pos = { edge, along };
+        this._applyPos();
+    }
+
+    _dragUp() {
+        window.removeEventListener('pointermove', this._onDragMove, true);
+        window.removeEventListener('pointerup', this._onDragUp, true);
+        const d = this._drag;
+        this._drag = null;
+        if (!d) return;
+        if (!d.moved) {
+            // no real drag → treat as click: open the panel
+            this.collapsed = false;
+            return;
+        }
+        // Position was already decided live in _dragMove; just remember it.
+        this._persistUiState();
     }
 
     connectedCallback() {
@@ -81,6 +166,10 @@ export class Vue2DevtoolsPanel extends LitElement {
         window.removeEventListener('keydown', this._onKeydown, true);
         if (this._vuexUnsub) this._vuexUnsub();
         stopPicking();
+    }
+
+    firstUpdated() {
+        this._applyPos();
     }
 
     _scheduleRefresh() {
@@ -271,6 +360,10 @@ export class Vue2DevtoolsPanel extends LitElement {
         // Persist remembered UI bits across reloads.
         if (changed && (changed.has('collapsed') || changed.has('tab'))) {
             this._persistUiState();
+        }
+        // Re-clamp the docked position when switching fab <-> panel (sizes differ).
+        if (changed && changed.has('collapsed')) {
+            this._applyPos();
         }
         // Focus a freshly opened inline editor.
         if (this._focusEdit) {
@@ -547,6 +640,10 @@ export class Vue2DevtoolsPanel extends LitElement {
         const attrsObj = vm.$attrs || {};
         const has = Object.keys(propsObj).length || Object.keys(dataObj).length || Object.keys(compObj).length || Object.keys(attrsObj).length;
         const file = vm.$options && vm.$options.__file;
+        // Only offer "open in editor" for project source files. Library
+        // components (el-table etc.) either carry no __file or point into
+        // node_modules — like the official devtools, don't show it for those.
+        const canOpen = !!file && !/[\\/]node_modules[\\/]/.test(file);
         return html`
             <div class="detail-head">
                 <span class="detail-name">&lt;${this._vmName(vm)}&gt;</span>
@@ -559,7 +656,7 @@ export class Vue2DevtoolsPanel extends LitElement {
                         ${this._icon('code')}
                         <span class="tip">Render code</span>
                     </button>
-                    ${file
+                    ${canOpen
                         ? html`
                               <button class="btn" @click=${() => this._openInEditor(file)}>
                                   ${this._icon('open')}
@@ -634,7 +731,9 @@ export class Vue2DevtoolsPanel extends LitElement {
     render() {
         if (this.collapsed) {
             return html`
-                <div class="fab" @click=${() => (this.collapsed = false)}>DevTools</div>
+                <div class="fab" @pointerdown=${e => this._onFabPointerDown(e)}>
+                    <span class="fab-icon">${this._vueLogo()}</span>
+                </div>
             `;
         }
         return html`
@@ -892,14 +991,36 @@ export class Vue2DevtoolsPanel extends LitElement {
             color: var(--text);
         }
         .fab {
-            padding-block: 9px;
-            padding-inline: 14px;
-            border-radius: 999px;
-            font-weight: 700;
-            color: #fff;
-            cursor: pointer;
-            background: linear-gradient(135deg, var(--accent), var(--accent-600));
-            box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            padding: 5px;
+            border-radius: 12px;
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            background: var(--bg);
+            border: 1px solid var(--border-strong);
+            box-shadow: 0 6px 20px rgb(16 24 40 / 0.18);
+        }
+        .fab:active {
+            cursor: grabbing;
+        }
+        .fab-icon {
+            display: grid;
+            place-items: center;
+            inline-size: 28px;
+            block-size: 28px;
+            border-radius: 8px;
+        }
+        .fab-icon svg {
+            inline-size: 20px;
+            block-size: 20px;
+        }
+        /* On the left/right edges, stack the entry's icons vertically. */
+        :host([dock='left']) .fab,
+        :host([dock='right']) .fab {
+            flex-direction: column;
         }
         .panel {
             inline-size: 620px;
