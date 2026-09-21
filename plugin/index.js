@@ -1,10 +1,3 @@
-/*
- * @Author: shuoshubao
- * @Date: 2026-09-20 18:53:10
- * @LastEditors: shuoshubao
- * @LastEditTime: 2026-09-21 19:31:02
- * @Description:
- */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { searchForWorkspaceRoot } from 'vite';
@@ -13,11 +6,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Absolute path to the browser-side entry that gets injected into the page.
 // It must run BEFORE the app imports Vue, so we inject it at the top of <head>.
-const CLIENT_ENTRY = resolve(__dirname, 'client/main.js');
+const CLIENT_ENTRY = resolve(__dirname, 'main.js');
 
 // Root of this plugin package — needed so Vite's dev server is allowed to
-// serve the client files that live outside the demo project root.
-const PLUGIN_ROOT = resolve(__dirname, '..');
+// serve the plugin's own files that live outside the demo project root.
+const PLUGIN_ROOT = __dirname;
 
 /**
  * vite-plugin-vue-devtools
@@ -29,7 +22,7 @@ const PLUGIN_ROOT = resolve(__dirname, '..');
  *
  * @returns {import('vite').Plugin}
  */
-const vueDevtools = () => {
+const vueDevTools = () => {
     return {
         name: 'vite-plugin-vue-devtools',
         // Inspector is a development aid only; never touch the production build.
@@ -67,4 +60,4 @@ const vueDevtools = () => {
     };
 };
 
-export default vueDevtools;
+export default vueDevTools;

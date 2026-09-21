@@ -22,7 +22,7 @@ const EDGE_MARGIN = 12;
 const PANEL_EDGE = EDGE_MARGIN + 30 / 2;
 const DRAG_THRESHOLD = 4;
 
-export class VueDevtoolsPanel extends LitElement {
+export class VueDevToolsPanel extends LitElement {
     static properties = {
         tree: { state: true },
         selectedId: { state: true },
@@ -37,7 +37,7 @@ export class VueDevtoolsPanel extends LitElement {
 
     constructor() {
         super();
-        const ui = VueDevtoolsPanel._loadUiState();
+        const ui = VueDevToolsPanel._loadUiState();
         this.tree = [];
         this.selectedId = null;
         this.expanded = new Set();
@@ -67,6 +67,18 @@ export class VueDevtoolsPanel extends LitElement {
         this._domObserver = null;
         this._onFlush = () => this._scheduleRefresh();
         this._onKeydown = e => this._handleKeydown(e);
+        // Keep the entry/panel on-screen when the viewport shrinks. resize can
+        // fire many times per second while dragging the window edge, and
+        // _applyPos reads layout then writes styles — so coalesce to at most one
+        // call per frame via rAF to avoid layout thrashing.
+        this._resizeRaf = 0;
+        this._onResize = () => {
+            if (this._resizeRaf) return;
+            this._resizeRaf = requestAnimationFrame(() => {
+                this._resizeRaf = 0;
+                this._applyPos();
+            });
+        };
     }
 
     static _loadUiState() {
@@ -94,7 +106,6 @@ export class VueDevtoolsPanel extends LitElement {
         if (!entry) return;
         const p = this._pos || { edge: 'bottom', along: Number.POSITIVE_INFINITY };
         const M = EDGE_MARGIN;
-        const GAP = 10;
         const vw = window.innerWidth;
         const vh = window.innerHeight;
         const er = entry.getBoundingClientRect();
@@ -102,27 +113,31 @@ export class VueDevtoolsPanel extends LitElement {
         const eh = er.height || 40;
         const clamp = (v, max) => Math.min(Math.max(M, v), Math.max(M, max));
 
+        // Clamped offset of the entry along its docked edge. We derive the panel
+        // position from these numbers directly rather than re-reading the entry's
+        // live rect — on a fresh open/refresh that rect can still be stale (reads
+        // ~0), which left the entry bottom-right but the panel bottom-left.
+        const alongX = clamp(p.along, vw - ew - M);
+        const alongY = clamp(p.along, vh - eh - M);
+
         const es = entry.style;
         es.insetInlineStart = es.insetBlockStart = es.insetInlineEnd = es.insetBlockEnd = 'auto';
         if (p.edge === 'right' || p.edge === 'left') {
             es['inset' + (p.edge === 'right' ? 'InlineEnd' : 'InlineStart')] = M + 'px';
-            es.insetBlockStart = clamp(p.along, vh - eh - M) + 'px';
+            es.insetBlockStart = alongY + 'px';
         } else {
             es['inset' + (p.edge === 'bottom' ? 'BlockEnd' : 'BlockStart')] = M + 'px';
-            es.insetInlineStart = clamp(p.along, vw - ew - M) + 'px';
+            es.insetInlineStart = alongX + 'px';
         }
         this.setAttribute('dock', p.edge);
 
         const panel = this.renderRoot.querySelector('.panel');
         if (!panel) return;
-        const r = entry.getBoundingClientRect(); // after positioning
         const ps = panel.style;
         ps.insetInlineStart = ps.insetBlockStart = ps.insetInlineEnd = ps.insetBlockEnd = 'auto';
-        // Panel sits PANEL_EDGE from the docked edge (entry floats in the gutter);
-        // the entry is centered along the panel's docked edge (panel offset so its
-        // edge midpoint lines up with the entry center), clamped on-screen.
-        const cx = r.left + r.width / 2;
-        const cy = r.top + r.height / 2;
+        // Entry center along its edge, computed from the clamped offsets above.
+        const cx = alongX + ew / 2;
+        const cy = alongY + eh / 2;
         if (p.edge === 'right') {
             ps.insetInlineEnd = PANEL_EDGE + 'px';
             ps.insetBlockStart = clamp(cy - PANEL_H / 2, vh - PANEL_H - M) + 'px';
@@ -202,6 +217,7 @@ export class VueDevtoolsPanel extends LitElement {
         super.connectedCallback();
         hook.on('flush', this._onFlush);
         window.addEventListener('keydown', this._onKeydown, true);
+        window.addEventListener('resize', this._onResize);
         this._vuexUnsub = vuexSubscribe(() => this.requestUpdate());
         // DOM-based fallback refresh (see constructor). Only childList/subtree —
         // our own panel renders inside a shadow root (not observed), and the
@@ -217,6 +233,11 @@ export class VueDevtoolsPanel extends LitElement {
         super.disconnectedCallback();
         hook.off('flush', this._onFlush);
         window.removeEventListener('keydown', this._onKeydown, true);
+        window.removeEventListener('resize', this._onResize);
+        if (this._resizeRaf) {
+            cancelAnimationFrame(this._resizeRaf);
+            this._resizeRaf = 0;
+        }
         if (this._domObserver) {
             this._domObserver.disconnect();
             this._domObserver = null;
@@ -1537,4 +1558,4 @@ export class VueDevtoolsPanel extends LitElement {
     `;
 }
 
-customElements.define('vue-devtools-panel', VueDevtoolsPanel);
+customElements.define('vue-devtools-panel', VueDevToolsPanel);
