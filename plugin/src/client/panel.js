@@ -17,6 +17,9 @@ const STORE_KEY = 'vue2-devtools:ui';
 const PANEL_W = 620;
 const PANEL_H = 420;
 const EDGE_MARGIN = 12;
+// Distance from the viewport edge to the panel when open (leaves room for the
+// floating entry to sit in the gutter, matching the official devtools).
+const PANEL_EDGE = EDGE_MARGIN + 30 / 2;
 const DRAG_THRESHOLD = 4;
 
 export class Vue2DevtoolsPanel extends LitElement {
@@ -69,54 +72,88 @@ export class Vue2DevtoolsPanel extends LitElement {
 
     _persistUiState() {
         try {
-            localStorage.setItem(STORE_KEY, JSON.stringify({ collapsed: this.collapsed, tab: this.tab, pos: this._pos || undefined }));
+            const pos = this._pos && Number.isFinite(this._pos.along) ? this._pos : undefined;
+            localStorage.setItem(STORE_KEY, JSON.stringify({ collapsed: this.collapsed, tab: this.tab, pos }));
         } catch (e) {
             /* storage unavailable — ignore */
         }
     }
 
-    // Apply the docked position to the host element. Clamps against the current
-    // rendered size so the fab (collapsed) and the panel (expanded) both stay
-    // fully on-screen.
+    // Position the always-visible entry against its docked edge, and (when open)
+    // the panel adjacent to it so the panel follows the entry. Both are fixed to
+    // the viewport; clamped to stay fully on-screen.
     _applyPos() {
-        const p = this._pos;
-        const s = this.style;
-        if (!p) {
-            // default: fall back to the CSS bottom-right anchor
-            s.insetInlineStart = s.insetBlockStart = s.insetInlineEnd = s.insetBlockEnd = '';
-            return;
-        }
+        const entry = this.renderRoot && this.renderRoot.querySelector('.entry');
+        if (!entry) return;
+        const p = this._pos || { edge: 'bottom', along: Number.POSITIVE_INFINITY };
         const M = EDGE_MARGIN;
-        const rect = this.getBoundingClientRect();
-        const w = rect.width || (this.collapsed ? 40 : PANEL_W);
-        const h = rect.height || (this.collapsed ? 40 : PANEL_H);
+        const GAP = 10;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const er = entry.getBoundingClientRect();
+        const ew = er.width || 40;
+        const eh = er.height || 40;
         const clamp = (v, max) => Math.min(Math.max(M, v), Math.max(M, max));
-        // Reset, then pin near the docked edge, free-slide along it.
-        s.insetInlineStart = s.insetBlockStart = s.insetInlineEnd = s.insetBlockEnd = 'auto';
+
+        const es = entry.style;
+        es.insetInlineStart = es.insetBlockStart = es.insetInlineEnd = es.insetBlockEnd = 'auto';
         if (p.edge === 'right' || p.edge === 'left') {
-            s['inset' + (p.edge === 'right' ? 'InlineEnd' : 'InlineStart')] = M + 'px';
-            s.insetBlockStart = clamp(p.along, window.innerHeight - h - M) + 'px';
+            es['inset' + (p.edge === 'right' ? 'InlineEnd' : 'InlineStart')] = M + 'px';
+            es.insetBlockStart = clamp(p.along, vh - eh - M) + 'px';
         } else {
-            s['inset' + (p.edge === 'bottom' ? 'BlockEnd' : 'BlockStart')] = M + 'px';
-            s.insetInlineStart = clamp(p.along, window.innerWidth - w - M) + 'px';
+            es['inset' + (p.edge === 'bottom' ? 'BlockEnd' : 'BlockStart')] = M + 'px';
+            es.insetInlineStart = clamp(p.along, vw - ew - M) + 'px';
         }
-        // Expose the docked edge so the entry can stack its icons along it
-        // (row on top/bottom, column on left/right).
         this.setAttribute('dock', p.edge);
+
+        const panel = this.renderRoot.querySelector('.panel');
+        if (!panel) return;
+        const r = entry.getBoundingClientRect(); // after positioning
+        const ps = panel.style;
+        ps.insetInlineStart = ps.insetBlockStart = ps.insetInlineEnd = ps.insetBlockEnd = 'auto';
+        // Panel sits PANEL_EDGE from the docked edge (entry floats in the gutter);
+        // the entry is centered along the panel's docked edge (panel offset so its
+        // edge midpoint lines up with the entry center), clamped on-screen.
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        if (p.edge === 'right') {
+            ps.insetInlineEnd = PANEL_EDGE + 'px';
+            ps.insetBlockStart = clamp(cy - PANEL_H / 2, vh - PANEL_H - M) + 'px';
+        } else if (p.edge === 'left') {
+            ps.insetInlineStart = PANEL_EDGE + 'px';
+            ps.insetBlockStart = clamp(cy - PANEL_H / 2, vh - PANEL_H - M) + 'px';
+        } else if (p.edge === 'top') {
+            ps.insetBlockStart = PANEL_EDGE + 'px';
+            ps.insetInlineStart = clamp(cx - PANEL_W / 2, vw - PANEL_W - M) + 'px';
+        } else {
+            ps.insetBlockEnd = PANEL_EDGE + 'px';
+            ps.insetInlineStart = clamp(cx - PANEL_W / 2, vw - PANEL_W - M) + 'px';
+        }
     }
 
-    // Drag the entry (fab). Movement over a small threshold counts as a drag;
-    // otherwise it's a click that opens the panel. On release, snap to whichever
-    // of the four edges is nearest and stay flush against it.
-    _onFabPointerDown(e) {
+    // Drag the always-visible entry. Movement over a threshold = drag (live snap
+    // to nearest edge, panel follows); a plain click toggles the panel.
+    _startDrag(e) {
         if (e.button !== 0) return;
         e.preventDefault();
-        const rect = this.getBoundingClientRect();
-        this._drag = { startX: e.clientX, startY: e.clientY, offX: e.clientX - rect.left, offY: e.clientY - rect.top, moved: false };
+        hide(); // clear any hover highlight before dragging
+        const entry = this.renderRoot.querySelector('.entry');
+        const rect = entry.getBoundingClientRect();
+        this._drag = {
+            startX: e.clientX,
+            startY: e.clientY,
+            offX: e.clientX - rect.left,
+            offY: e.clientY - rect.top,
+            moved: false
+        };
         this._onDragMove = ev => this._dragMove(ev);
         this._onDragUp = ev => this._dragUp(ev);
         window.addEventListener('pointermove', this._onDragMove, true);
         window.addEventListener('pointerup', this._onDragUp, true);
+    }
+
+    _onFabPointerDown(e) {
+        this._startDrag(e);
     }
 
     _dragMove(e) {
@@ -124,11 +161,15 @@ export class Vue2DevtoolsPanel extends LitElement {
         if (!d) return;
         if (!d.moved && Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) < DRAG_THRESHOLD) return;
         d.moved = true;
-        // Snap to the nearest edge live during the drag (not on release), so the
-        // docked offset + orientation update in real time as the pointer moves.
+        // Snap to the nearest edge live during the drag (not on release).
         const vw = window.innerWidth;
         const vh = window.innerHeight;
-        const dist = { left: e.clientX, right: vw - e.clientX, top: e.clientY, bottom: vh - e.clientY };
+        const dist = {
+            left: e.clientX,
+            right: vw - e.clientX,
+            top: e.clientY,
+            bottom: vh - e.clientY
+        };
         const edge = Object.keys(dist).reduce((a, b) => (dist[b] < dist[a] ? b : a));
         const along = edge === 'left' || edge === 'right' ? e.clientY - d.offY : e.clientX - d.offX;
         this._pos = { edge, along };
@@ -142,8 +183,8 @@ export class Vue2DevtoolsPanel extends LitElement {
         this._drag = null;
         if (!d) return;
         if (!d.moved) {
-            // no real drag → treat as click: open the panel
-            this.collapsed = false;
+            // plain click → toggle the panel
+            this.collapsed = !this.collapsed;
             return;
         }
         // Position was already decided live in _dragMove; just remember it.
@@ -199,6 +240,7 @@ export class Vue2DevtoolsPanel extends LitElement {
 
     // Highlight the page DOM only while hovering a tree row (vue-devtools style).
     _hoverEnter(id) {
+        if (this._drag) return; // don't highlight while dragging the entry/panel
         const vm = getInstance(id);
         if (vm) highlight(vm);
     }
@@ -729,13 +771,15 @@ export class Vue2DevtoolsPanel extends LitElement {
     }
 
     render() {
-        if (this.collapsed) {
-            return html`
-                <div class="fab" @pointerdown=${e => this._onFabPointerDown(e)}>
-                    <span class="fab-icon">${this._vueLogo()}</span>
-                </div>
-            `;
-        }
+        return html`
+            <div class="entry" @pointerdown=${e => this._onFabPointerDown(e)}>
+                <span class="fab-icon">${this._vueLogo()}</span>
+            </div>
+            ${this.collapsed ? null : this._renderPanel()}
+        `;
+    }
+
+    _renderPanel() {
         return html`
             <div class="panel">
                 <nav class="sidebar">
@@ -873,10 +917,29 @@ export class Vue2DevtoolsPanel extends LitElement {
     // Official Vue logo (three triangles).
     _vueLogo() {
         return html`
-            <svg viewBox="0 0 256 221" aria-hidden="true">
-                <path d="M204.8 0H256L128 220.8 0 0h97.92L128 51.2 157.44 0z" fill="#41b883" />
-                <path d="M0 0l128 220.8L256 0h-51.2L128 132.48 50.56 0z" fill="#41b883" />
-                <path d="M50.56 0L128 133.12 204.8 0h-47.36L128 51.2 97.92 0z" fill="#35495e" />
+            <svg viewBox="0 0 246.52 208.87" aria-hidden="true">
+                <linearGradient
+                    id="vdt-logo-1"
+                    gradientUnits="userSpaceOnUse"
+                    x1="-3449.4177"
+                    y1="3349.6663"
+                    x2="-3229.0247"
+                    y2="3349.6663"
+                    gradientTransform="matrix(-1 0 0 -1 -3219.187 3476.3691)"
+                >
+                    <stop offset="0.0053" stop-color="#008FC1" />
+                    <stop offset="1" stop-color="#00F879" />
+                </linearGradient>
+                <linearGradient id="vdt-logo-2" gradientUnits="userSpaceOnUse" x1="22.5895" y1="139.0657" x2="213.6784" y2="32.6144">
+                    <stop offset="0" stop-color="#00FFFF" />
+                    <stop offset="0.3711" stop-color="#52F3AB" />
+                    <stop offset="1" stop-color="#D9E021" />
+                </linearGradient>
+                <polygon fill="url(#vdt-logo-1)" points="120.03,212.11 230.23,41.3 9.84,41.3" />
+                <path
+                    fill="url(#vdt-logo-2)"
+                    d="M242.01,37c-0.04-0.11-0.08-0.22-0.13-0.33c-0.6-1.25-1.9-1.89-3.31-2.28c0,0-0.01-0.01-0.01-0.01c-1.49-0.4-3.42-0.57-5.76-0.51c-0.03-0.01-0.06-0.01-0.08,0c-4.16,0.12-8.13,0.76-12.39,1.57c-0.01,0-0.01,0-0.02,0.01c-4.54,0.88-9.18,2.04-13.73,3.29c-0.94,0.26-1.9,0.53-2.87,0.8c-0.07,0.01-0.13,0.04-0.19,0.06c-1.04,0.3-2.09,0.61-3.17,0.93c-0.02,0-0.04,0.01-0.06,0.01c-12.55,3.75-25.12,8.24-37.45,13.03c0,0,0,0,0,0c0,0,0,0-0.01,0c-0.14,0-15.72-5.1-15.86-5.13c-0.61-0.2-0.92-0.88-0.68-1.47l6.23-15.29c0.1-0.26,0.3-0.47,0.56-0.59l20.96-9.74C118.88-27.47,29.43,12.85,30.45,87.28l23.77-11.77C53.03,46.21,87.14,29.34,109.7,48.1L88.08,58.77l-6.17,18.28l15.77,5.3l0.01,0.01l2.56,0.86l21.58-10.68c1.5,29.11-33.18,46.21-55.44,27.41l-15.76,7.8c-4.95,2.95-9.86,6.01-14.65,9.15c-0.01,0.01-0.01,0.01-0.01,0.01c-1.19,0.78-2.35,1.55-3.47,2.31c-0.01,0-0.01,0-0.01,0.01c-4.57,3.09-9.06,6.32-13.15,9.62c-0.05,0.03-0.1,0.07-0.14,0.11c-0.42,0.34-0.82,0.67-1.22,1c0,0,0,0,0,0c-1.47,1.21-2.91,2.47-4.29,3.76c-0.21,0.2-0.42,0.39-0.62,0.6c-0.71,0.67-1.37,1.34-1.96,1.98c-0.01,0.01-0.02,0.01-0.03,0.03c-0.26,0.28-0.51,0.56-0.75,0.82c-0.03,0.03-0.05,0.06-0.07,0.09c-0.14,0.16-0.27,0.31-0.4,0.46c-0.13,0.15-0.26,0.3-0.38,0.45c-0.38,0.44-0.71,0.88-1.02,1.31c-0.39,0.53-0.74,1.08-1.05,1.63c-0.47,0.81-0.84,1.67-1.02,2.52c-0.02,0.09-0.04,0.18-0.05,0.27c0,0.04-0.01,0.09-0.01,0.13c-0.45,5.19,7.2,4.85,11.33,4.65c0.69-0.04,1.37-0.1,2.06-0.18c0.39-0.04,0.79-0.08,1.19-0.13c0.34-0.04,0.68-0.08,1.03-0.13c9.58-1.34,18.99-3.95,28.3-6.74c56.32,67.3,166.12,18.25,152.23-69.41c11.24-6.86,22.67-14.75,29.27-20.46c2.91-2.52,5.74-5.12,8.02-8.12c0.11-0.14,0.22-0.28,0.31-0.42c0.2-0.28,0.39-0.56,0.56-0.83c0.38-0.61,0.75-1.24,1.02-1.89c0.04-0.1,0.08-0.19,0.12-0.29c0.04-0.1,0.08-0.21,0.11-0.3C242.21,38.72,242.26,37.79,242.01,37z"
+                />
             </svg>
         `;
     }
@@ -983,19 +1046,22 @@ export class Vue2DevtoolsPanel extends LitElement {
             --c-obj: #475467;
 
             position: fixed;
-            inset-block-end: 10px;
-            inset-inline-end: 10px;
+            inset: 0;
+            pointer-events: none;
             z-index: 2147483647;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             font-size: 12px;
             color: var(--text);
         }
-        .fab {
+        .entry {
+            position: fixed;
+            pointer-events: auto;
+            z-index: 2;
             display: flex;
             align-items: center;
             gap: 2px;
-            padding: 5px;
-            border-radius: 12px;
+            padding: 7px;
+            border-radius: 10px;
             cursor: grab;
             touch-action: none;
             user-select: none;
@@ -1003,24 +1069,37 @@ export class Vue2DevtoolsPanel extends LitElement {
             border: 1px solid var(--border-strong);
             box-shadow: 0 6px 20px rgb(16 24 40 / 0.18);
         }
-        .fab:active {
+        .entry:active {
             cursor: grabbing;
         }
         .fab-icon {
             display: grid;
             place-items: center;
-            inline-size: 28px;
-            block-size: 28px;
-            border-radius: 8px;
+            inline-size: 16px;
+            block-size: 16px;
         }
         .fab-icon svg {
-            inline-size: 20px;
-            block-size: 20px;
+            inline-size: 16px;
+            block-size: 16px;
         }
         /* On the left/right edges, stack the entry's icons vertically. */
-        :host([dock='left']) .fab,
-        :host([dock='right']) .fab {
+        :host([dock='left']) .entry,
+        :host([dock='right']) .entry {
             flex-direction: column;
+        }
+        .panel {
+            position: fixed;
+            pointer-events: auto;
+            z-index: 1;
+            inline-size: 620px;
+            block-size: 420px;
+            display: grid;
+            grid-template-columns: 48px 1fr;
+            overflow: hidden;
+            background: var(--bg);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius);
+            box-shadow: 0 12px 40px rgb(16 24 40 / 0.18);
         }
         .panel {
             inline-size: 620px;
@@ -1045,13 +1124,16 @@ export class Vue2DevtoolsPanel extends LitElement {
             border-inline-end: 1px solid var(--border);
         }
         .logo {
-            inline-size: 24px;
-            block-size: 24px;
-            margin-block-end: 6px;
+            display: grid;
+            place-items: center;
+            inline-size: 34px;
+            block-size: 34px;
+            margin-block-end: 4px;
+            border-radius: 9px;
 
             & svg {
-                inline-size: 100%;
-                block-size: 100%;
+                inline-size: 22px;
+                block-size: 22px;
                 display: block;
             }
         }
