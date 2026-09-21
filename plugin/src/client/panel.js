@@ -58,6 +58,13 @@ export class VueDevtoolsPanel extends LitElement {
         this._focusEdit = false;
         this._flushTimer = null;
         this._scrollToSelected = false;
+        // DOM fallback: when Vue is externalized as a global build (e.g. via
+        // vite-plugin-externals), the 'flush' hook may never fire — our
+        // head-prepended hook can load after the global Vue, or a production
+        // Vue build strips the devtools emit entirely. Watching the DOM for
+        // added/removed nodes keeps the tree live regardless, since the tree is
+        // derived from `el.__vue__` anyway.
+        this._domObserver = null;
         this._onFlush = () => this._scheduleRefresh();
         this._onKeydown = e => this._handleKeydown(e);
     }
@@ -196,6 +203,11 @@ export class VueDevtoolsPanel extends LitElement {
         hook.on('flush', this._onFlush);
         window.addEventListener('keydown', this._onKeydown, true);
         this._vuexUnsub = vuexSubscribe(() => this.requestUpdate());
+        // DOM-based fallback refresh (see constructor). Only childList/subtree —
+        // our own panel renders inside a shadow root (not observed), and the
+        // inspector highlight box only mutates via style, so this won't loop.
+        this._domObserver = new MutationObserver(() => this._scheduleRefresh());
+        this._domObserver.observe(document.body, { childList: true, subtree: true });
         // First paint may happen before the app has mounted; retry shortly.
         this.refresh();
         setTimeout(() => this.refresh(), 300);
@@ -205,6 +217,10 @@ export class VueDevtoolsPanel extends LitElement {
         super.disconnectedCallback();
         hook.off('flush', this._onFlush);
         window.removeEventListener('keydown', this._onKeydown, true);
+        if (this._domObserver) {
+            this._domObserver.disconnect();
+            this._domObserver = null;
+        }
         if (this._vuexUnsub) this._vuexUnsub();
         stopPicking();
     }
