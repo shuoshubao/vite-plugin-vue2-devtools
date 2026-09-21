@@ -9,6 +9,10 @@ import { isPicking, startPicking, stopPicking } from './picker.js';
 import { commitAll, getSnapshots, getStore, hasStore, travelTo, subscribe as vuexSubscribe } from './vuex.js';
 import { buildTree, formatValue, getInstance } from './walker.js';
 
+// Persisted UI state (survives reloads). Only stable, cheap bits — not the
+// component tree / expanded set (ids are regenerated each load).
+const STORE_KEY = 'vue2-devtools:ui';
+
 export class Vue2DevtoolsPanel extends LitElement {
     static properties = {
         tree: { state: true },
@@ -18,19 +22,23 @@ export class Vue2DevtoolsPanel extends LitElement {
         picking: { state: true },
         query: { state: true },
         tab: { state: true },
-        vuexSelected: { state: true }
+        vuexSelected: { state: true },
+        renderCodeText: { state: true }
     };
 
     constructor() {
         super();
+        const ui = Vue2DevtoolsPanel._loadUiState();
         this.tree = [];
         this.selectedId = null;
         this.expanded = new Set();
-        this.collapsed = false;
+        // Panel is closed by default; reopen state is remembered across reloads.
+        this.collapsed = ui.collapsed !== undefined ? ui.collapsed : true;
         this.picking = false;
         this.query = '';
-        this.tab = 'components';
+        this.tab = ui.tab || 'components';
         this.vuexSelected = 0;
+        this.renderCodeText = null;
         this.valueExpanded = new Set();
         this.sectionCollapsed = new Set();
         this._editingPath = null;
@@ -39,6 +47,22 @@ export class Vue2DevtoolsPanel extends LitElement {
         this._scrollToSelected = false;
         this._onFlush = () => this._scheduleRefresh();
         this._onKeydown = e => this._handleKeydown(e);
+    }
+
+    static _loadUiState() {
+        try {
+            return JSON.parse(localStorage.getItem(STORE_KEY)) || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    _persistUiState() {
+        try {
+            localStorage.setItem(STORE_KEY, JSON.stringify({ collapsed: this.collapsed, tab: this.tab }));
+        } catch (e) {
+            /* storage unavailable — ignore */
+        }
     }
 
     connectedCallback() {
@@ -244,6 +268,10 @@ export class Vue2DevtoolsPanel extends LitElement {
     }
 
     updated(changed) {
+        // Persist remembered UI bits across reloads.
+        if (changed && (changed.has('collapsed') || changed.has('tab'))) {
+            this._persistUiState();
+        }
         // Focus a freshly opened inline editor.
         if (this._focusEdit) {
             this._focusEdit = false;
@@ -518,7 +546,29 @@ export class Vue2DevtoolsPanel extends LitElement {
         }
         const attrsObj = vm.$attrs || {};
         const has = Object.keys(propsObj).length || Object.keys(dataObj).length || Object.keys(compObj).length || Object.keys(attrsObj).length;
+        const file = vm.$options && vm.$options.__file;
         return html`
+            <div class="detail-head">
+                <span class="detail-name">&lt;${this._vmName(vm)}&gt;</span>
+                <span class="detail-actions">
+                    <button class="btn" @click=${() => this._scrollToComponent(vm)}>
+                        ${this._icon('scroll')}
+                        <span class="tip">Scroll to component</span>
+                    </button>
+                    <button class="btn" @click=${() => this._showRenderCode(vm)}>
+                        ${this._icon('code')}
+                        <span class="tip">Render code</span>
+                    </button>
+                    ${file
+                        ? html`
+                              <button class="btn" @click=${() => this._openInEditor(file)}>
+                                  ${this._icon('open')}
+                                  <span class="tip">Open in editor</span>
+                              </button>
+                          `
+                        : null}
+                </span>
+            </div>
             ${this._renderKvSection('props', propsObj, true)} ${this._renderKvSection('data', dataObj, true)}
             ${this._renderKvSection('computed', compObj, false)} ${this._renderKvSection('attrs', attrsObj, false)}
             ${!has
@@ -527,6 +577,58 @@ export class Vue2DevtoolsPanel extends LitElement {
                   `
                 : null}
         `;
+    }
+
+    _vmName(vm) {
+        const o = vm.$options || {};
+        let n = o.name || o._componentTag;
+        if (!n && o.__file)
+            n = String(o.__file)
+                .split(/[\\/]/)
+                .pop()
+                .replace(/\.vue$/, '');
+        if (!n && vm.$root === vm) n = 'Root';
+        return n || 'Anonymous';
+    }
+
+    // Ask the Vite dev server to open the component's source file in the editor.
+    _openInEditor(file) {
+        if (!file) return;
+        fetch('/__open-in-editor?file=' + encodeURIComponent(file)).catch(() => {});
+    }
+
+    // Scroll the component's root DOM element into view and flash the highlight.
+    _scrollToComponent(vm) {
+        const el = vm && vm.$el;
+        if (!el || !el.scrollIntoView) return;
+        el.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+            inline: 'center'
+        });
+        highlight(vm);
+        clearTimeout(this._scrollHlTimer);
+        this._scrollHlTimer = setTimeout(() => hide(), 1000);
+    }
+
+    // Show the component's (compiled) render function source in an overlay.
+    _showRenderCode(vm) {
+        const fn = vm && vm.$options && vm.$options.render;
+        this.renderCodeText = fn ? this._dedent(fn.toString()) : '// no render function on this component';
+    }
+
+    // fn.toString() keeps the source's original (often deep) indentation on every
+    // line except the first. Strip the common leading whitespace so it reads flush.
+    _dedent(code) {
+        const lines = code.split('\n');
+        let min = Infinity;
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            const indent = lines[i].match(/^[ \t]*/)[0].length;
+            if (indent < min) min = indent;
+        }
+        if (!isFinite(min) || min === 0) return code;
+        return lines.map((l, i) => (i === 0 ? l : l.slice(min))).join('\n');
     }
 
     render() {
@@ -562,6 +664,17 @@ export class Vue2DevtoolsPanel extends LitElement {
                     </button>
                 </nav>
                 <div class="main">${this.tab === 'components' ? this._renderComponents() : this._renderVuex()}</div>
+                ${this.renderCodeText != null
+                    ? html`
+                          <div class="code-overlay">
+                              <div class="code-head">
+                                  <span>Render code</span>
+                                  <button class="btn" @click=${() => (this.renderCodeText = null)}>${this._icon('close')}</button>
+                              </div>
+                              <pre class="code-body">${this.renderCodeText}</pre>
+                          </div>
+                      `
+                    : null}
             </div>
         `;
     }
@@ -702,6 +815,36 @@ export class Vue2DevtoolsPanel extends LitElement {
                         <path d="M5 12h14" />
                     </svg>
                 `;
+            case 'open':
+                return html`
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h6v6" />
+                        <path d="M10 14 21 3" />
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    </svg>
+                `;
+            case 'scroll':
+                return html`
+                    <svg viewBox="64 64 896 896" fill="currentColor" aria-hidden="true">
+                        <path
+                            d="M136 384h56c4.4 0 8-3.6 8-8V200h176c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H196c-37.6 0-68 30.4-68 68v180c0 4.4 3.6 8 8 8zm512-184h176v176c0 4.4 3.6 8 8 8h56c4.4 0 8-3.6 8-8V196c0-37.6-30.4-68-68-68H648c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zM376 824H200V648c0-4.4-3.6-8-8-8h-56c-4.4 0-8 3.6-8 8v180c0 37.6 30.4 68 68 68h180c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm512-184h-56c-4.4 0-8 3.6-8 8v176H648c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h180c37.6 0 68-30.4 68-68V648c0-4.4-3.6-8-8-8zm16-164H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8z"
+                        />
+                    </svg>
+                `;
+            case 'code':
+                return html`
+                    <svg viewBox="64 64 896 896" fill="currentColor" aria-hidden="true">
+                        <path
+                            d="M516 673c0 4.4 3.4 8 7.5 8h185c4.1 0 7.5-3.6 7.5-8v-48c0-4.4-3.4-8-7.5-8h-185c-4.1 0-7.5 3.6-7.5 8v48zm-194.9 6.1l192-161c3.8-3.2 3.8-9.1 0-12.3l-192-160.9A7.95 7.95 0 00308 351v62.7c0 2.4 1 4.6 2.9 6.1L420.7 512l-109.8 92.2a8.1 8.1 0 00-2.9 6.1V673c0 6.8 7.9 10.5 13.1 6.1zM880 112H144c-17.7 0-32 14.3-32 32v736c0 17.7 14.3 32 32 32h736c17.7 0 32-14.3 32-32V144c0-17.7-14.3-32-32-32zm-40 728H184V184h656v656z"
+                        />
+                    </svg>
+                `;
+            case 'close':
+                return html`
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                `;
             default:
                 return null;
         }
@@ -741,8 +884,8 @@ export class Vue2DevtoolsPanel extends LitElement {
             --c-obj: #475467;
 
             position: fixed;
-            inset-block-end: 12px;
-            inset-inline-end: 12px;
+            inset-block-end: 10px;
+            inset-inline-end: 10px;
             z-index: 2147483647;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             font-size: 12px;
@@ -820,25 +963,9 @@ export class Vue2DevtoolsPanel extends LitElement {
             }
 
             & .tip {
-                position: absolute;
                 inset-inline-start: calc(100% + 8px);
                 inset-block-start: 50%;
-                translate: 0 -50%;
-                padding: 3px 8px;
-                border-radius: 6px;
-                font-size: 12px;
-                font-weight: 500;
-                line-height: 1.4;
-                white-space: nowrap;
-                color: #fff;
-                background: #1f2937;
-                box-shadow: 0 4px 12px rgb(16 24 40 / 0.25);
-                pointer-events: none;
-                opacity: 0;
                 translate: -4px -50%;
-                transition:
-                    opacity 0.12s ease,
-                    translate 0.12s ease;
 
                 &::before {
                     content: '';
@@ -851,9 +978,33 @@ export class Vue2DevtoolsPanel extends LitElement {
                 }
             }
             &:hover .tip {
-                opacity: 1;
                 translate: 0 -50%;
             }
+        }
+        .tip {
+            position: absolute;
+            z-index: 20;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.4;
+            white-space: nowrap;
+            color: #fff;
+            background: #1f2937;
+            box-shadow: 0 4px 12px rgb(16 24 40 / 0.25);
+            pointer-events: none;
+            opacity: 0;
+            transition:
+                opacity 0.12s ease,
+                translate 0.12s ease;
+        }
+        .btn .tip {
+            inset-block-start: calc(100% + 6px);
+            inset-inline-end: 0;
+        }
+        :is(.side-tab, .btn):hover > .tip {
+            opacity: 1;
         }
         .side-spacer {
             flex: 1;
@@ -868,6 +1019,7 @@ export class Vue2DevtoolsPanel extends LitElement {
             overflow: hidden;
         }
         .btn {
+            position: relative;
             display: inline-flex;
             padding: 4px 8px;
             border: 0;
@@ -929,6 +1081,71 @@ export class Vue2DevtoolsPanel extends LitElement {
         .detail {
             overflow: auto;
             padding: 6px 8px;
+        }
+        .detail-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-block-end: 4px;
+            margin-block-end: 4px;
+            border-block-end: 1px solid var(--border);
+
+            & .detail-name {
+                font-weight: 600;
+                color: var(--accent-600);
+            }
+            & .detail-actions {
+                display: flex;
+                gap: 2px;
+                margin-inline-start: auto;
+
+                & .btn {
+                    padding: 2px 5px;
+                }
+                & .btn svg {
+                    inline-size: 15px;
+                    block-size: 15px;
+                }
+            }
+        }
+        .code-overlay {
+            position: absolute;
+            inset-block: 0;
+            inset-inline: 48px 0;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+
+            & .code-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 8px 10px;
+                font-weight: 600;
+                color: var(--text-strong);
+                border-block-end: 1px solid var(--border);
+
+                & .btn {
+                    padding: 0;
+                    inline-size: 26px;
+                    block-size: 26px;
+                    align-items: center;
+                    justify-content: center;
+                }
+            }
+            & .code-body {
+                flex: 1;
+                margin: 0;
+                overflow: auto;
+                padding: 10px 12px;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                font-size: 12px;
+                line-height: 1.5;
+                color: var(--c-obj);
+                white-space: pre;
+                tab-size: 2;
+            }
         }
         .node {
             display: flex;
