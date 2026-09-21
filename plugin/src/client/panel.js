@@ -539,25 +539,27 @@ export class Vue2DevtoolsPanel extends LitElement {
             <div class="panel">
                 <nav class="sidebar">
                     <div class="logo">${this._vueLogo()}</div>
-                    <button class="side-tab ${this.tab === 'components' ? 'active' : ''}" title="Components" @click=${() => (this.tab = 'components')}>
+                    <button class="side-tab ${this.tab === 'components' ? 'active' : ''}" @click=${() => (this.tab = 'components')}>
                         ${this._icon('components')}
+                        <span class="tip">Components</span>
                     </button>
-                    <button class="side-tab ${this.tab === 'vuex' ? 'active' : ''}" title="Vuex" @click=${() => (this.tab = 'vuex')}>
+                    <button class="side-tab ${this.tab === 'vuex' ? 'active' : ''}" @click=${() => (this.tab = 'vuex')}>
                         ${this._icon('vuex')}
+                        <span class="tip">Vuex</span>
                     </button>
                     <span class="side-spacer"></span>
                     ${this.tab === 'components'
                         ? html`
-                              <button
-                                  class="side-tab ${this.picking ? 'active' : ''}"
-                                  title="Pick element on page (Esc to cancel)"
-                                  @click=${() => this._togglePick()}
-                              >
+                              <button class="side-tab ${this.picking ? 'active' : ''}" @click=${() => this._togglePick()}>
                                   ${this._icon('pick')}
+                                  <span class="tip">${this.picking ? 'Cancel pick (Esc)' : 'Pick element'}</span>
                               </button>
                           `
                         : null}
-                    <button class="side-tab" title="Minimize" @click=${() => (this.collapsed = true)}>${this._icon('min')}</button>
+                    <button class="side-tab" @click=${() => (this.collapsed = true)}>
+                        ${this._icon('min')}
+                        <span class="tip">Minimize</span>
+                    </button>
                 </nav>
                 <div class="main">${this.tab === 'components' ? this._renderComponents() : this._renderVuex()}</div>
             </div>
@@ -768,6 +770,8 @@ export class Vue2DevtoolsPanel extends LitElement {
             box-shadow: 0 12px 40px rgb(16 24 40 / 0.18);
         }
         .sidebar {
+            position: relative;
+            z-index: 2;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -788,6 +792,7 @@ export class Vue2DevtoolsPanel extends LitElement {
             }
         }
         .side-tab {
+            position: relative;
             display: grid;
             place-items: center;
             inline-size: 34px;
@@ -813,11 +818,49 @@ export class Vue2DevtoolsPanel extends LitElement {
                 color: var(--accent);
                 background: color-mix(in srgb, var(--accent) 14%, transparent);
             }
+
+            & .tip {
+                position: absolute;
+                inset-inline-start: calc(100% + 8px);
+                inset-block-start: 50%;
+                translate: 0 -50%;
+                padding: 3px 8px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 500;
+                line-height: 1.4;
+                white-space: nowrap;
+                color: #fff;
+                background: #1f2937;
+                box-shadow: 0 4px 12px rgb(16 24 40 / 0.25);
+                pointer-events: none;
+                opacity: 0;
+                translate: -4px -50%;
+                transition:
+                    opacity 0.12s ease,
+                    translate 0.12s ease;
+
+                &::before {
+                    content: '';
+                    position: absolute;
+                    inset-inline-end: 100%;
+                    inset-block-start: 50%;
+                    translate: 0 -50%;
+                    border: 4px solid transparent;
+                    border-inline-end-color: #1f2937;
+                }
+            }
+            &:hover .tip {
+                opacity: 1;
+                translate: 0 -50%;
+            }
         }
         .side-spacer {
             flex: 1;
         }
         .main {
+            position: relative;
+            z-index: 1;
             display: flex;
             flex-direction: column;
             min-inline-size: 0;
