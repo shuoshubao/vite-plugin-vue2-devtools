@@ -530,6 +530,9 @@ export class VueDevtoolsPanel extends LitElement {
         const open = this.valueExpanded.has(path);
         const canEdit = editable && !isObj && typeof value !== 'function';
         const editing = this._editingPath === path;
+        // Single-line preview; full text is exposed via `title` since the value
+        // is truncated with an ellipsis when it overflows the row.
+        const preview = this._preview(value, keys);
         return html`
             <div class="vrow ${expandable ? 'expandable' : ''}" style="padding-left:${depth * 12 + 2}px" @click=${() => expandable && this._toggleValue(path)}>
                 <span class="caret-btn static">${this._caret(open, !expandable)}</span>
@@ -548,6 +551,7 @@ export class VueDevtoolsPanel extends LitElement {
                     : html`
                           <span
                               class="val ${this._valClass(value)} ${canEdit ? 'editable' : ''}"
+                              title=${preview}
                               @click=${e => {
                                   if (!canEdit) return;
                                   e.stopPropagation();
@@ -556,7 +560,7 @@ export class VueDevtoolsPanel extends LitElement {
                                   this.requestUpdate();
                               }}
                           >
-                              ${this._preview(value, keys)}
+                              ${preview}
                           </span>
                       `}
                 ${!editing
@@ -1451,8 +1455,11 @@ export class VueDevtoolsPanel extends LitElement {
             color: var(--muted);
         }
         .val {
-            word-break: break-all;
-            white-space: normal;
+            flex: 0 1 auto;
+            min-inline-size: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
 
             &.editable {
                 cursor: text;
@@ -1475,6 +1482,7 @@ export class VueDevtoolsPanel extends LitElement {
         }
         .copy-btn {
             visibility: hidden;
+            flex-shrink: 0;
             padding-inline: 4px;
             border: 0;
             line-height: 1;
