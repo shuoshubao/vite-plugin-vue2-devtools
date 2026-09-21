@@ -13,24 +13,29 @@ const snapshots = []; // { type, payload, state, base? }
 const listeners = new Set();
 let store = null;
 
-function emit() {
+const emit = () => {
     listeners.forEach(l => l());
-}
+};
 
 // Deep clone so a snapshot isn't mutated by later state changes. Vuex state is
 // normally serialisable; fall back to the live reference if it isn't.
-function clone(state) {
+const clone = state => {
     try {
         return JSON.parse(JSON.stringify(state));
     } catch (e) {
         return state;
     }
-}
+};
 
 hook.on('vuex:init', s => {
     store = s;
     snapshots.length = 0;
-    snapshots.push({ type: 'Base State', payload: undefined, state: clone(s.state), base: true });
+    snapshots.push({
+        type: 'Base State',
+        payload: undefined,
+        state: clone(s.state),
+        base: true
+    });
     emit();
 });
 
@@ -44,35 +49,40 @@ hook.on('vuex:mutation', (mutation, state) => {
     emit();
 });
 
-export function hasStore() {
+export const hasStore = () => {
     return !!store;
-}
+};
 
-export function getSnapshots() {
+export const getSnapshots = () => {
     return snapshots;
-}
+};
 
-export function getStore() {
+export const getStore = () => {
     return store;
-}
+};
 
-export function subscribe(cb) {
+export const subscribe = cb => {
     listeners.add(cb);
     return () => listeners.delete(cb);
-}
+};
 
 // Apply a recorded snapshot to the live store (Vuex's plugin does the
 // replaceState in response to this event).
-export function travelTo(index) {
+export const travelTo = index => {
     const snap = snapshots[index];
     if (!snap || !store) return;
     hook.emit('vuex:travel-to-state', snap.state);
-}
+};
 
 // Drop history and treat the current live state as the new base.
-export function commitAll() {
+export const commitAll = () => {
     if (!store) return;
     snapshots.length = 0;
-    snapshots.push({ type: 'Base State', payload: undefined, state: clone(store.state), base: true });
+    snapshots.push({
+        type: 'Base State',
+        payload: undefined,
+        state: clone(store.state),
+        base: true
+    });
     emit();
-}
+};

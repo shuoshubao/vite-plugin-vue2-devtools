@@ -1,5 +1,5 @@
 {
-    "name": "vite-plugin-vue2-devtools",
+    "name": "vite-plugin-vue-devtools",
     "version": "0.1.0",
     "description": "A dev-only Vite plugin that adds a component inspector panel for Vue 2.6 apps.",
     "type": "module",

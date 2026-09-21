@@ -8,15 +8,15 @@ let label = null;
 let onPick = null;
 let hovered = null;
 
-function nearestVm(el) {
+const nearestVm = el => {
     while (el) {
         if (el.__vue__) return el.__vue__;
         el = el.parentElement;
     }
     return null;
-}
+};
 
-function vmName(vm) {
+const vmName = vm => {
     const o = vm.$options || {};
     let n = o.name || o._componentTag;
     if (!n && o.__file)
@@ -26,9 +26,9 @@ function vmName(vm) {
             .replace(/\.vue$/, '');
     if (!n && vm.$root === vm) n = 'Root';
     return n || 'Anonymous';
-}
+};
 
-function ensureEls() {
+const ensureEls = () => {
     if (box) return;
     box = document.createElement('div');
     Object.assign(box.style, {
@@ -55,9 +55,9 @@ function ensureEls() {
     });
     document.body.appendChild(box);
     document.body.appendChild(label);
-}
+};
 
-function paint(vm) {
+const paint = vm => {
     const el = vm && vm.$el;
     if (!el || !el.getBoundingClientRect) return clear();
     const r = el.getBoundingClientRect();
@@ -72,34 +72,34 @@ function paint(vm) {
     label.style.display = 'block';
     label.style.top = `${Math.max(0, r.top - 20)}px`;
     label.style.left = `${r.left}px`;
-}
+};
 
-function clear() {
+const clear = () => {
     if (box) box.style.display = 'none';
     if (label) label.style.display = 'none';
-}
+};
 
-function onMove(e) {
+const onMove = e => {
     const vm = nearestVm(e.target);
     hovered = vm;
     if (vm) paint(vm);
     else clear();
-}
+};
 
-function onClick(e) {
+const onClick = e => {
     e.preventDefault();
     e.stopPropagation();
     const vm = hovered || nearestVm(e.target);
     const cb = onPick;
     stopPicking();
     if (vm && cb) cb(vm);
-}
+};
 
-function onKey(e) {
+const onKey = e => {
     if (e.key === 'Escape') stopPicking();
-}
+};
 
-export function startPicking(cb) {
+export const startPicking = cb => {
     if (active) return;
     ensureEls();
     active = true;
@@ -109,9 +109,9 @@ export function startPicking(cb) {
     document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);
     document.body.style.cursor = 'crosshair';
-}
+};
 
-export function stopPicking() {
+export const stopPicking = () => {
     if (!active) return;
     active = false;
     onPick = null;
@@ -121,8 +121,8 @@ export function stopPicking() {
     document.removeEventListener('keydown', onKey, true);
     document.body.style.cursor = '';
     clear();
-}
+};
 
-export function isPicking() {
+export const isPicking = () => {
     return active;
-}
+};

@@ -9,7 +9,7 @@
 
 const HOOK_KEY = '__VUE_DEVTOOLS_GLOBAL_HOOK__';
 
-function createHook() {
+const createHook = () => {
     const listeners = Object.create(null);
     return {
         // captured Vue constructor (set on 'init')
@@ -28,7 +28,7 @@ function createHook() {
             if (arr) arr.slice().forEach(fn => fn(...args));
         }
     };
-}
+};
 
 // Reuse an existing hook if one somehow already exists, otherwise install ours.
 const hook = window[HOOK_KEY] || (window[HOOK_KEY] = createHook());

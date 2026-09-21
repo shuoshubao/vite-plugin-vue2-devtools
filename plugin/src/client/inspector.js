@@ -2,7 +2,7 @@
 
 let box = null;
 
-function ensureBox() {
+const ensureBox = () => {
     if (box) return box;
     box = document.createElement('div');
     Object.assign(box.style, {
@@ -17,9 +17,9 @@ function ensureBox() {
     });
     document.body.appendChild(box);
     return box;
-}
+};
 
-export function highlight(vm) {
+export const highlight = vm => {
     const el = vm && vm.$el;
     if (!el || !el.getBoundingClientRect) return hide();
     const rect = el.getBoundingClientRect();
@@ -31,8 +31,8 @@ export function highlight(vm) {
         width: `${rect.width}px`,
         height: `${rect.height}px`
     });
-}
+};
 
-export function hide() {
+export const hide = () => {
     if (box) box.style.display = 'none';
-}
+};

@@ -4,23 +4,23 @@
 // Stable ids across re-walks: same instance -> same id.
 const idMap = new WeakMap();
 let uid = 0;
-function idOf(vm) {
+const idOf = vm => {
     let id = idMap.get(vm);
     if (id === undefined) {
         id = ++uid;
         idMap.set(vm, id);
     }
     return id;
-}
+};
 
 // Registry so the panel can resolve an id back to the live instance.
 const registry = new Map();
 
-export function getInstance(id) {
+export const getInstance = id => {
     return registry.get(id);
-}
+};
 
-function displayName(vm) {
+const displayName = vm => {
     const opts = vm.$options || {};
     let name = opts.name || opts._componentTag;
     if (!name && opts.__file) {
@@ -32,11 +32,11 @@ function displayName(vm) {
     }
     if (!name && vm.$root === vm) name = 'Root';
     return name || 'Anonymous';
-}
+};
 
 // Find every root instance currently mounted in the DOM. Vue 2 sets
 // `el.__vue__` on component elements; `$root` dedupes them into app roots.
-export function findRoots() {
+export const findRoots = () => {
     const roots = new Set();
     const els = document.querySelectorAll('*');
     for (const el of els) {
@@ -44,18 +44,18 @@ export function findRoots() {
         if (vm && vm.$root) roots.add(vm.$root);
     }
     return [...roots];
-}
+};
 
 // Build a serialisable tree; keeps the registry in sync with what's shown.
 // The synthetic root instance (`new Vue({ render: h => h(App) })`) carries no
 // meaningful state, so — like vue-devtools — we skip it and surface its
 // children (e.g. <App>) as the top-level nodes.
-export function buildTree() {
+export const buildTree = () => {
     registry.clear();
     return findRoots().flatMap(vm => walk(vm).children);
-}
+};
 
-function walk(vm) {
+const walk = vm => {
     const id = idOf(vm);
     registry.set(id, vm);
     return {
@@ -63,13 +63,13 @@ function walk(vm) {
         name: displayName(vm),
         children: (vm.$children || []).map(walk)
     };
-}
+};
 
 // ---- value formatting -------------------------------------------------------
 
 // Render an arbitrary value into a short, safe display string. Same-realm, so
 // we can inspect types directly; we just avoid dumping huge/circular objects.
-export function formatValue(value, depth = 0) {
+export const formatValue = (value, depth = 0) => {
     const t = typeof value;
     if (value === null) return 'null';
     if (value === undefined) return 'undefined';
@@ -92,11 +92,11 @@ export function formatValue(value, depth = 0) {
         return `{ ${preview.join(', ')} }`;
     }
     return String(value);
-}
+};
 
 // Extract props / data / computed for the detail pane. Values are returned raw
 // (not stringified) so the panel can render an expandable value tree.
-export function inspect(vm) {
+export const inspect = vm => {
     if (!vm) return { props: [], data: [], computed: [] };
 
     const props = [];
@@ -130,4 +130,4 @@ export function inspect(vm) {
     }
 
     return { props, data, computed };
-}
+};

@@ -11,7 +11,7 @@ import { buildTree, formatValue, getInstance } from './walker.js';
 
 // Persisted UI state (survives reloads). Only stable, cheap bits — not the
 // component tree / expanded set (ids are regenerated each load).
-const STORE_KEY = 'vue2-devtools:ui';
+const STORE_KEY = 'vue-devtools:ui';
 
 // Panel size (keep in sync with .panel CSS) — used to keep it on-screen.
 const PANEL_W = 620;
@@ -22,7 +22,7 @@ const EDGE_MARGIN = 12;
 const PANEL_EDGE = EDGE_MARGIN + 30 / 2;
 const DRAG_THRESHOLD = 4;
 
-export class Vue2DevtoolsPanel extends LitElement {
+export class VueDevtoolsPanel extends LitElement {
     static properties = {
         tree: { state: true },
         selectedId: { state: true },
@@ -37,7 +37,7 @@ export class Vue2DevtoolsPanel extends LitElement {
 
     constructor() {
         super();
-        const ui = Vue2DevtoolsPanel._loadUiState();
+        const ui = VueDevtoolsPanel._loadUiState();
         this.tree = [];
         this.selectedId = null;
         this.expanded = new Set();
@@ -1513,4 +1513,4 @@ export class Vue2DevtoolsPanel extends LitElement {
     `;
 }
 
-customElements.define('vue2-devtools-panel', Vue2DevtoolsPanel);
+customElements.define('vue-devtools-panel', VueDevtoolsPanel);
