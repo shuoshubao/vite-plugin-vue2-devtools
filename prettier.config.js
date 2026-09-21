@@ -8,6 +8,5 @@ export default {
     proseWrap: 'never',
     arrowParens: 'avoid',
     bracketSpacing: true,
-    htmlWhitespaceSensitivity: 'ignore',
-    
+    htmlWhitespaceSensitivity: 'ignore'
 };

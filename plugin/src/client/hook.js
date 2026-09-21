@@ -7,35 +7,35 @@
 // so we can capture the Vue constructor and subscribe to flushes for live
 // refresh. This module MUST be imported before the app imports Vue.
 
-const HOOK_KEY = '__VUE_DEVTOOLS_GLOBAL_HOOK__'
+const HOOK_KEY = '__VUE_DEVTOOLS_GLOBAL_HOOK__';
 
 function createHook() {
-  const listeners = Object.create(null)
-  return {
-    // captured Vue constructor (set on 'init')
-    Vue: undefined,
-    on(event, fn) {
-      ;(listeners[event] || (listeners[event] = [])).push(fn)
-    },
-    off(event, fn) {
-      const arr = listeners[event]
-      if (!arr) return
-      const i = arr.indexOf(fn)
-      if (i > -1) arr.splice(i, 1)
-    },
-    emit(event, ...args) {
-      const arr = listeners[event]
-      if (arr) arr.slice().forEach((fn) => fn(...args))
-    }
-  }
+    const listeners = Object.create(null);
+    return {
+        // captured Vue constructor (set on 'init')
+        Vue: undefined,
+        on(event, fn) {
+            (listeners[event] || (listeners[event] = [])).push(fn);
+        },
+        off(event, fn) {
+            const arr = listeners[event];
+            if (!arr) return;
+            const i = arr.indexOf(fn);
+            if (i > -1) arr.splice(i, 1);
+        },
+        emit(event, ...args) {
+            const arr = listeners[event];
+            if (arr) arr.slice().forEach(fn => fn(...args));
+        }
+    };
 }
 
 // Reuse an existing hook if one somehow already exists, otherwise install ours.
-const hook = window[HOOK_KEY] || (window[HOOK_KEY] = createHook())
+const hook = window[HOOK_KEY] || (window[HOOK_KEY] = createHook());
 
 // Capture the Vue constructor as soon as Vue registers itself.
-hook.on('init', (Vue) => {
-  hook.Vue = Vue
-})
+hook.on('init', Vue => {
+    hook.Vue = Vue;
+});
 
-export default hook
+export default hook;

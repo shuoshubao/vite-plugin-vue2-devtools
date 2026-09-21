@@ -2,20 +2,20 @@
 // devtools hook *before* the app imports Vue. Then we mount the inspector
 // panel once the document is ready.
 
-import './hook.js'
-import './vuex.js'
-import './panel.js'
+import './hook.js';
+import './panel.js';
+import './vuex.js';
 
 function mount() {
-  if (document.querySelector('#__vue2_devtools__')) return
-  const host = document.createElement('div')
-  host.id = '__vue2_devtools__'
-  document.body.appendChild(host)
-  host.appendChild(document.createElement('vue2-devtools-panel'))
+    if (document.querySelector('#__vue2_devtools__')) return;
+    const host = document.createElement('div');
+    host.id = '__vue2_devtools__';
+    document.body.appendChild(host);
+    host.appendChild(document.createElement('vue2-devtools-panel'));
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', mount)
+    document.addEventListener('DOMContentLoaded', mount);
 } else {
-  mount()
+    mount();
 }
