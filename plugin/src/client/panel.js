@@ -281,13 +281,13 @@ export class Vue2DevtoolsPanel extends LitElement {
                     @mouseleave=${() => this._hoverLeave()}
                 >
                     <span
-                        class="arrow ${hasChildren ? '' : 'hidden'} ${isOpen ? 'open' : ''}"
+                        class="caret-btn"
                         @click=${e => {
                             e.stopPropagation();
                             this._toggle(node.id);
                         }}
                     >
-                        ▶
+                        ${this._caret(isOpen, !hasChildren)}
                     </span>
                     <span class="tag">&lt;${node.name}&gt;</span>
                 </div>
@@ -310,7 +310,7 @@ export class Vue2DevtoolsPanel extends LitElement {
                     @mouseenter=${() => this._hoverEnter(node.id)}
                     @mouseleave=${() => this._hoverLeave()}
                 >
-                    <span class="arrow ${kids.length ? 'open' : 'hidden'}">▶</span>
+                    <span class="caret-btn static">${this._caret(kids.length > 0, kids.length === 0)}</span>
                     <span class="tag">&lt;${node.name}&gt;</span>
                 </div>
                 ${kids.map(c => this._renderSearchNode(c, depth + 1, show))}
@@ -325,10 +325,7 @@ export class Vue2DevtoolsPanel extends LitElement {
         if (!keys.length) return null;
         const collapsed = this.sectionCollapsed.has(title);
         return html`
-            <div class="section-title" @click=${() => this._toggleSection(title)}>
-                <span class="sarrow ${collapsed ? '' : 'open'}">▶</span>
-                ${title}
-            </div>
+            <div class="section-title" @click=${() => this._toggleSection(title)}>${this._caret(!collapsed, false)} ${title}</div>
             ${collapsed ? null : keys.map(k => this._renderValueRow(k, obj[k], `${title}.${k}`, 0, obj, editable))}
         `;
     }
@@ -356,7 +353,7 @@ export class Vue2DevtoolsPanel extends LitElement {
         const editing = this._editingPath === path;
         return html`
             <div class="vrow ${expandable ? 'expandable' : ''}" style="padding-left:${depth * 12 + 2}px" @click=${() => expandable && this._toggleValue(path)}>
-                <span class="varrow ${expandable ? '' : 'hidden'} ${open ? 'open' : ''}">▶</span>
+                <span class="caret-btn static">${this._caret(open, !expandable)}</span>
                 <span class="key">${keyLabel}</span>
                 <span class="colon">:</span>
                 ${editing
@@ -417,7 +414,7 @@ export class Vue2DevtoolsPanel extends LitElement {
     }
 
     // navigator.clipboard only exists in secure contexts (https / localhost), so
-    // over plain http (e.g. http://a.baidu.com:5000) fall back to execCommand.
+    // over plain http (e.g. http://localhost:5000) fall back to execCommand.
     _writeClipboard(text) {
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).catch(() => this._fallbackCopy(text));
@@ -535,25 +532,34 @@ export class Vue2DevtoolsPanel extends LitElement {
     render() {
         if (this.collapsed) {
             return html`
-                <div class="fab" @click=${() => (this.collapsed = false)}>Vue2</div>
+                <div class="fab" @click=${() => (this.collapsed = false)}>DevTools</div>
             `;
         }
         return html`
             <div class="panel">
-                <div class="header">
-                    <button class="tab ${this.tab === 'components' ? 'active' : ''}" @click=${() => (this.tab = 'components')}>Components</button>
-                    <button class="tab ${this.tab === 'vuex' ? 'active' : ''}" @click=${() => (this.tab = 'vuex')}>Vuex</button>
-                    <span class="spacer"></span>
+                <nav class="sidebar">
+                    <div class="logo">${this._vueLogo()}</div>
+                    <button class="side-tab ${this.tab === 'components' ? 'active' : ''}" title="Components" @click=${() => (this.tab = 'components')}>
+                        ${this._icon('components')}
+                    </button>
+                    <button class="side-tab ${this.tab === 'vuex' ? 'active' : ''}" title="Vuex" @click=${() => (this.tab = 'vuex')}>
+                        ${this._icon('vuex')}
+                    </button>
+                    <span class="side-spacer"></span>
                     ${this.tab === 'components'
                         ? html`
-                              <button class="btn ${this.picking ? 'on' : ''}" title="Pick element on page (Esc to cancel)" @click=${() => this._togglePick()}>
-                                  ⌖
+                              <button
+                                  class="side-tab ${this.picking ? 'active' : ''}"
+                                  title="Pick element on page (Esc to cancel)"
+                                  @click=${() => this._togglePick()}
+                              >
+                                  ${this._icon('pick')}
                               </button>
                           `
                         : null}
-                    <button class="btn" title="Minimize" @click=${() => (this.collapsed = true)}>─</button>
-                </div>
-                ${this.tab === 'components' ? this._renderComponents() : this._renderVuex()}
+                    <button class="side-tab" title="Minimize" @click=${() => (this.collapsed = true)}>${this._icon('min')}</button>
+                </nav>
+                <div class="main">${this.tab === 'components' ? this._renderComponents() : this._renderVuex()}</div>
             </div>
         `;
     }
@@ -650,111 +656,234 @@ export class Vue2DevtoolsPanel extends LitElement {
         `;
     }
 
+    // Official Vue logo (three triangles).
+    _vueLogo() {
+        return html`
+            <svg viewBox="0 0 256 221" aria-hidden="true">
+                <path d="M204.8 0H256L128 220.8 0 0h97.92L128 51.2 157.44 0z" fill="#41b883" />
+                <path d="M0 0l128 220.8L256 0h-51.2L128 132.48 50.56 0z" fill="#41b883" />
+                <path d="M50.56 0L128 133.12 204.8 0h-47.36L128 51.2 97.92 0z" fill="#35495e" />
+            </svg>
+        `;
+    }
+
+    // Inline stroked icons (currentColor) for the sidebar / toolbar.
+    _icon(name) {
+        switch (name) {
+            case 'components':
+                return html`
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="3" width="6" height="5" rx="1" />
+                        <rect x="3" y="16" width="6" height="5" rx="1" />
+                        <rect x="15" y="16" width="6" height="5" rx="1" />
+                        <path d="M12 8v3M6 16v-2h12v2" />
+                    </svg>
+                `;
+            case 'vuex':
+                return html`
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <ellipse cx="12" cy="5" rx="8" ry="3" />
+                        <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+                        <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+                    </svg>
+                `;
+            case 'pick':
+                return html`
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
+                        <circle cx="12" cy="12" r="4" />
+                    </svg>
+                `;
+            case 'min':
+                return html`
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M5 12h14" />
+                    </svg>
+                `;
+            default:
+                return null;
+        }
+    }
+
+    // Expand/collapse caret as an SVG chevron — rotates cleanly around center
+    // (unlike a text glyph, which drifts when rotated).
+    _caret(open, hidden) {
+        return html`
+            <svg class="caret ${open ? 'open' : ''} ${hidden ? 'hidden' : ''}" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+        `;
+    }
+
     static styles = css`
         :host {
+            --accent: #41b883;
+            --accent-600: #2f9e6d;
+            --bg: #ffffff;
+            --surface: #f7f8fa;
+            --border: #edeff2;
+            --border-strong: #e4e7ec;
+            --field-border: #d0d5dd;
+            --text: #1f2937;
+            --text-strong: #101828;
+            --muted: #98a2b3;
+            --muted-2: #667085;
+            --radius: 12px;
+            --radius-sm: 7px;
+            --c-key: #7c3aed;
+            --c-num: #1d4ed8;
+            --c-bool: #9333ea;
+            --c-str: #16a34a;
+            --c-null: #b45309;
+            --c-fn: #2563eb;
+            --c-obj: #475467;
+
             position: fixed;
-            right: 12px;
-            bottom: 12px;
+            inset-block-end: 12px;
+            inset-inline-end: 12px;
             z-index: 2147483647;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             font-size: 12px;
-            color: #e8e8e8;
+            color: var(--text);
         }
         .fab {
-            background: #35495e;
-            color: #41b883;
+            padding-block: 9px;
+            padding-inline: 14px;
+            border-radius: 999px;
             font-weight: 700;
-            padding: 8px 12px;
-            border-radius: 20px;
+            color: #fff;
             cursor: pointer;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+            background: linear-gradient(135deg, var(--accent), var(--accent-600));
+            box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent);
         }
         .panel {
-            width: 520px;
-            height: 380px;
+            inline-size: 620px;
+            block-size: 420px;
+            display: grid;
+            grid-template-columns: 48px 1fr;
+            overflow: hidden;
+            background: var(--bg);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius);
+            box-shadow: 0 12px 40px rgb(16 24 40 / 0.18);
+        }
+        .sidebar {
             display: flex;
             flex-direction: column;
-            background: #242424;
-            border: 1px solid #3a3a3a;
-            border-radius: 8px;
-            box-shadow: 0 6px 30px rgba(0, 0, 0, 0.45);
-            overflow: hidden;
-        }
-        .header {
-            display: flex;
             align-items: center;
-            gap: 6px;
-            padding: 6px 8px;
-            background: #35495e;
+            gap: 4px;
+            padding-block: 8px;
+            background: var(--surface);
+            border-inline-end: 1px solid var(--border);
         }
-        .tab {
+        .logo {
+            inline-size: 24px;
+            block-size: 24px;
+            margin-block-end: 6px;
+
+            & svg {
+                inline-size: 100%;
+                block-size: 100%;
+                display: block;
+            }
+        }
+        .side-tab {
+            display: grid;
+            place-items: center;
+            inline-size: 34px;
+            block-size: 34px;
+            border: 0;
+            border-radius: 9px;
+            color: var(--muted-2);
             background: transparent;
-            border: none;
-            border-bottom: 2px solid transparent;
-            color: #b0bec5;
             cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-            padding: 2px 4px;
+            transition:
+                color 0.15s,
+                background 0.15s;
+
+            & svg {
+                inline-size: 20px;
+                block-size: 20px;
+            }
+            &:hover {
+                color: var(--text);
+                background: color-mix(in srgb, var(--text) 8%, transparent);
+            }
+            &.active {
+                color: var(--accent);
+                background: color-mix(in srgb, var(--accent) 14%, transparent);
+            }
         }
-        .tab:hover {
-            color: #fff;
-        }
-        .tab.active {
-            color: #41b883;
-            border-bottom-color: #41b883;
-        }
-        .spacer {
+        .side-spacer {
             flex: 1;
         }
+        .main {
+            display: flex;
+            flex-direction: column;
+            min-inline-size: 0;
+            min-block-size: 0;
+            overflow: hidden;
+        }
         .btn {
-            background: transparent;
-            border: 1px solid transparent;
-            color: #cfd8dc;
-            cursor: pointer;
-            border-radius: 4px;
-            padding: 2px 6px;
+            display: inline-flex;
+            padding: 4px 8px;
+            border: 0;
+            border-radius: var(--radius-sm);
             font-size: 13px;
-        }
-        .btn:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-        .btn.on {
-            color: #41b883;
-            border-color: #41b883;
+            color: var(--muted-2);
+            background: transparent;
+            cursor: pointer;
+            transition:
+                background 0.15s,
+                color 0.15s;
+
+            & svg {
+                inline-size: 16px;
+                block-size: 16px;
+                display: block;
+            }
+            &:hover {
+                color: var(--text);
+                background: color-mix(in srgb, var(--text) 8%, transparent);
+            }
+            &.on {
+                color: #fff;
+                background: var(--accent);
+            }
         }
         .body {
             flex: 1;
-            display: flex;
-            min-height: 0;
+            min-block-size: 0;
+            display: grid;
+            grid-template-columns: 45% 1fr;
         }
         .search {
             padding: 5px 8px;
-            background: #2b2b2b;
-            border-bottom: 1px solid #3a3a3a;
-        }
-        .search-input {
-            width: 100%;
-            box-sizing: border-box;
-            background: #1c1c1c;
-            border: 1px solid #3a3a3a;
-            border-radius: 4px;
-            color: #e8e8e8;
-            font-size: 12px;
-            padding: 4px 8px;
-            outline: none;
-        }
-        .search-input:focus {
-            border-color: #41b883;
+            background: var(--surface);
+            border-block-end: 1px solid var(--border);
+
+            & .search-input {
+                inline-size: 100%;
+                box-sizing: border-box;
+                padding: 4px 8px;
+                color: var(--text-strong);
+                background: var(--bg);
+                border: 1px solid var(--field-border);
+                border-radius: 4px;
+                font-size: 12px;
+                outline: none;
+
+                &:focus {
+                    border-color: var(--accent);
+                }
+            }
         }
         .tree {
-            width: 45%;
             overflow: auto;
-            border-right: 1px solid #3a3a3a;
-            padding: 4px 0;
+            padding-block: 4px;
+            border-inline-end: 1px solid var(--border);
         }
         .detail {
-            flex: 1;
             overflow: auto;
             padding: 6px 8px;
         }
@@ -762,33 +891,47 @@ export class Vue2DevtoolsPanel extends LitElement {
             display: flex;
             align-items: center;
             gap: 4px;
-            cursor: pointer;
-            white-space: nowrap;
             padding: 2px 4px;
             line-height: 18px;
+            white-space: nowrap;
+            cursor: pointer;
+
+            &:hover {
+                background: color-mix(in srgb, var(--text) 6%, transparent);
+            }
+            &.selected {
+                color: #fff;
+                background: var(--accent);
+
+                & :is(.caret, .mut-index) {
+                    color: #fff;
+                }
+            }
         }
-        .node:hover {
-            background: rgba(255, 255, 255, 0.06);
+        .caret-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            inline-size: 12px;
+            block-size: 17px;
+            flex: none;
         }
-        .node.selected {
-            background: #41b883;
-            color: #17222b;
+        .caret-btn.static {
+            pointer-events: none;
         }
-        .arrow {
-            display: inline-block;
-            width: 10px;
-            font-size: 8px;
-            transition: transform 0.1s;
-            color: #90a4ae;
-        }
-        .node.selected .arrow {
-            color: #17222b;
-        }
-        .arrow.open {
-            transform: rotate(90deg);
-        }
-        .arrow.hidden {
-            visibility: hidden;
+        .caret {
+            inline-size: 9px;
+            block-size: 9px;
+            color: var(--muted);
+            transform-origin: 50% 50%;
+            transition: transform 0.12s ease;
+
+            &.open {
+                transform: rotate(90deg);
+            }
+            &.hidden {
+                visibility: hidden;
+            }
         }
         .tag {
             color: inherit;
@@ -797,134 +940,112 @@ export class Vue2DevtoolsPanel extends LitElement {
             display: flex;
             align-items: center;
             gap: 3px;
-            color: #9e9e9e;
+            margin-block: 8px 2px;
             font-weight: 500;
-            margin: 8px 0 2px;
-            cursor: pointer;
+            color: var(--muted);
             text-transform: lowercase;
-        }
-        .section-title:hover {
-            color: #cfd8dc;
-        }
-        .sarrow {
-            display: inline-block;
-            width: 9px;
-            font-size: 7px;
-            color: #9e9e9e;
-            transition: transform 0.1s;
-        }
-        .sarrow.open {
-            transform: rotate(90deg);
+            cursor: pointer;
+
+            &:hover {
+                color: #475467;
+            }
         }
         .vrow {
             display: flex;
             align-items: baseline;
             gap: 3px;
-            padding: 1px 0;
-            white-space: nowrap;
+            padding-block: 1px;
             line-height: 17px;
-        }
-        .vrow.expandable {
-            cursor: pointer;
-        }
-        .varrow {
-            display: inline-block;
-            width: 9px;
-            font-size: 7px;
-            color: #90a4ae;
-            transition: transform 0.1s;
-            flex: none;
-        }
-        .varrow.open {
-            transform: rotate(90deg);
-        }
-        .varrow.hidden {
-            visibility: hidden;
+            white-space: nowrap;
+
+            &.expandable {
+                cursor: pointer;
+            }
+            &:hover .copy-btn {
+                visibility: visible;
+            }
         }
         .key {
-            color: #80cbc4;
+            color: var(--c-key);
         }
         .colon {
-            color: #789;
+            color: var(--muted);
         }
         .val {
             word-break: break-all;
             white-space: normal;
-        }
-        .val.editable {
-            cursor: text;
-            border-radius: 2px;
-        }
-        .val.editable:hover {
-            background: rgba(65, 184, 131, 0.15);
-            box-shadow: 0 0 0 1px rgba(65, 184, 131, 0.4);
+
+            &.editable {
+                cursor: text;
+                border-radius: 2px;
+
+                &:hover {
+                    background: color-mix(in srgb, var(--accent) 15%, transparent);
+                    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+                }
+            }
         }
         .edit-input {
-            background: #1c1c1c;
-            border: 1px solid #41b883;
+            min-inline-size: 60px;
+            padding-inline: 4px;
+            color: var(--text-strong);
+            background: var(--bg);
+            border: 1px solid var(--accent);
             border-radius: 2px;
-            color: #e8e8e8;
             font: inherit;
-            padding: 0 4px;
-            min-width: 60px;
         }
         .copy-btn {
             visibility: hidden;
-            background: transparent;
-            border: none;
-            color: #90a4ae;
-            cursor: pointer;
-            font-size: 12px;
-            padding: 0 4px;
+            padding-inline: 4px;
+            border: 0;
             line-height: 1;
-        }
-        .copy-btn:hover {
-            color: #41b883;
-        }
-        .vrow:hover .copy-btn {
-            visibility: visible;
+            font-size: 12px;
+            color: var(--muted);
+            background: transparent;
+            cursor: pointer;
+
+            &:hover {
+                color: var(--accent-600);
+            }
         }
         .v-num {
-            color: #ffcb6b;
+            color: var(--c-num);
         }
         .v-bool {
-            color: #c792ea;
+            color: var(--c-bool);
         }
         .v-str {
-            color: #c3e88d;
+            color: var(--c-str);
         }
         .v-null {
-            color: #f78c6c;
+            color: var(--c-null);
         }
         .v-fn {
-            color: #82aaff;
+            color: var(--c-fn);
             font-style: italic;
         }
         .v-obj {
-            color: #b0bec5;
+            color: var(--c-obj);
         }
         .empty {
-            color: #789;
             padding: 8px;
             font-style: italic;
+            color: var(--muted);
         }
         .vuex-bar {
             padding: 4px 6px;
-            border-bottom: 1px solid #3a3a3a;
+            border-block-end: 1px solid var(--border);
         }
         .mut-index {
             display: inline-block;
-            min-width: 16px;
-            color: #90a4ae;
+            min-inline-size: 16px;
             font-size: 10px;
-            text-align: right;
-        }
-        .node.selected .mut-index {
-            color: #17222b;
+            text-align: end;
+            color: var(--muted);
         }
         .time-travel {
-            margin: 4px 0 8px;
             display: inline-block;
+            margin-block: 4px 8px;
         }
     `;
 }
