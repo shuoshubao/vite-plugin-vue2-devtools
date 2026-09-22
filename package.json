@@ -1,10 +1,24 @@
 {
-    "name": "vue2-devtools-mono",
-    "version": "0.0.0",
-    "private": true,
+    "name": "vite-plugin-vue2-devtools",
+    "version": "0.1.0",
+    "description": "vite-plugin-vue-devtools for vue@2.x",
     "type": "module",
-    "workspaces": [
-        "plugin",
-        "demo"
-    ]
+    "main": "lib/index.js",
+    "exports": {
+        ".": "./lib/index.js"
+    },
+    "files": [
+        "lib"
+    ],
+    "keywords": [
+        "vite-plugin",
+        "vue2",
+        "vue-devtools",
+        "devtools",
+        "inspector"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "lit": "^3.1.4"
+    }
 }

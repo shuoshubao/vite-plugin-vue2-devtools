@@ -1,8 +1,8 @@
 import { createVuePlugin } from 'vite-plugin-vue2';
-import vueDevtools from 'vite-plugin-vue-devtools';
+import vue2Devtools from '../lib/index.js';
 
 export default {
-    plugins: [createVuePlugin(), vueDevtools()],
+    plugins: [createVuePlugin(), vue2Devtools()],
     server: {
         port: 5000,
         allowedHosts: true,
