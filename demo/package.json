@@ -3,6 +3,9 @@
     "version": "0.0.0",
     "private": true,
     "type": "module",
+    "overrides": {
+        "vite": "6.3.5"
+    },
     "scripts": {
         "dev": "vite",
         "build": "vite build",
@@ -15,7 +18,6 @@
         "vuex": "3.6.2"
     },
     "devDependencies": {
-        "vite": "6.3.5",
         "vite-plugin-vue2": "2.0.3",
         "vue-template-compiler": "2.6.14"
     }
