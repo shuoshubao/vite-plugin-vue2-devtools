@@ -1,4 +1,4 @@
-# vite-plugin-vue2-devtools
+# vite-plugin-devtools-vue2
 
 一个**仅用于开发环境**的 Vite 插件，为 Vue 2.6 应用注入一个悬浮的组件审查面板（devtools）。
 
@@ -24,7 +24,7 @@
 ## 安装
 
 ```bash
-npm i -D vite-plugin-vue2-devtools
+npm i -D vite-plugin-devtools-vue2
 ```
 
 ## 使用
@@ -33,7 +33,7 @@ npm i -D vite-plugin-vue2-devtools
 
 ```js
 import { createVuePlugin } from 'vite-plugin-vue2';
-import vueDevtools from 'vite-plugin-vue2-devtools';
+import vueDevtools from 'vite-plugin-devtools-vue2';
 
 export default {
     plugins: [createVuePlugin(), vueDevtools()]
