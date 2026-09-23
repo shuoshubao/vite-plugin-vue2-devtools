@@ -4,6 +4,10 @@
 
 面板基于 Shadow DOM + [lit](https://lit.dev/) 渲染，运行在页面同一上下文中，直接读取 Vue 组件实例，无需跨上下文桥接，也不依赖浏览器扩展。
 
+## 预览
+
+![插件截图](https://popo-store.cdn.bcebos.com/archive/13276/d3a1b67e0681430cab5df8faaad38027.png)
+
 ## 特性
 
 -   **组件树**：实时展示组件层级，支持搜索、展开/折叠、方向键导航
