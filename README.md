@@ -1,4 +1,4 @@
-# vite-plugin-devtools-vue2
+# vite-plugin-vue2-devtools
 
 一个**仅用于开发环境**的 Vite 插件，为 Vue 2.6 应用注入一个悬浮的组件审查面板（devtools）。
 
@@ -6,17 +6,20 @@
 
 ## 预览
 
-![插件截图](https://popo-store.cdn.bcebos.com/archive/13276/d3a1b67e0681430cab5df8faaad38027.png)
+![插件截图](https://popo-store.cdn.bcebos.com/archive/13276/b7610f4c7d7843b2ab5a8c60d205cb12.png)
 
 ## 特性
 
--   **组件树**：实时展示组件层级，支持搜索、展开/折叠、方向键导航
--   **状态审查**：查看选中组件的 `props` / `data` / `computed` / `attrs`，值可就地编辑、一键复制
+-   **组件树**：实时展示组件层级，支持搜索、展开/折叠、方向键导航（搜索态同样可折叠展开）
+-   **状态审查**：查看选中组件的 `props` / `data` / `computed` / `attrs`，值可就地编辑、一键复制；字段过多时按 key 过滤
 -   **组件拾取器**：在页面上点选元素直接定位到对应组件；悬停高亮组件 DOM
 -   **源码跳转**：调用 Vite 的 `/__open-in-editor` 在编辑器中打开组件源文件
 -   **渲染函数**：查看组件的 `render` 函数源码
 -   **Vuex**：查看 state 快照、时间旅行（time-travel）、提交历史
--   **悬浮面板**：可拖拽吸附到任意边缘，窗口缩放时自动保持在可视区域内
+-   **Timeline**：组件事件（`$emit`）与 Vuex mutation 合并为一条时间线，可回看 payload / 状态
+-   **悬浮入口**：可拖拽吸附到任意边缘（面板跟随），空闲自动贴边收起，窗口缩放时自动保持在可视区域内
+-   **主题**：内置浅色 / 深色主题切换
+-   **状态记忆**：面板开合、当前标签、主题、停靠位置等持久化到 `localStorage`
 -   **兼容 externals**：即使 Vue 被外部化为全局变量（`vite-plugin-externals`），组件树也能正常刷新
 
 ## 环境要求
@@ -28,7 +31,7 @@
 ## 安装
 
 ```bash
-npm i -D vite-plugin-devtools-vue2
+npm i -D vite-plugin-vue2-devtools
 ```
 
 ## 使用
@@ -37,10 +40,10 @@ npm i -D vite-plugin-devtools-vue2
 
 ```js
 import { createVuePlugin } from 'vite-plugin-vue2';
-import vueDevtools from 'vite-plugin-devtools-vue2';
+import vue2Devtools from 'vite-plugin-vue2-devtools';
 
 export default {
-    plugins: [createVuePlugin(), vueDevtools()]
+    plugins: [createVuePlugin(), vue2Devtools()]
 };
 ```
 
